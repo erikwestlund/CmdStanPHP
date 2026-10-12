@@ -22,6 +22,7 @@ All classes and functions are in the `CmdStan` namespace. Function and method na
 | `read_cmdstan_csv(files)` / `as_cmdstan_fit(files)` | Import one or more CmdStan CSV files into a typed fit |
 | `read_cmdstan_csv_list(files, variables: null, sampler_diagnostics: null, format: null)` | Return CmdStanR's `read_cmdstan_csv()` list shape |
 | `draws_to_csv(chains, dir)` | Export `[chain][iteration][variable]` associative draw rows to separate CSV files |
+| `mcmc_trace`, `mcmc_hist`, `mcmc_dens`, `mcmc_dens_overlay`, `mcmc_intervals`, `mcmc_rank_hist`, `mcmc_scatter`, `mcmc_acf`, `pareto_k_plot` | Return a `Figure` named after its bayesplot or loo counterpart; see the inference guide |
 | `cmdstanr_example(example: 'logistic', method: 'sample', ...options)` / `print_example_program(example)` | Run or print the `logistic`, `schools`, or `schools_ncp` example |
 
 `read_sample_csv()`, `write_stan_tempfile()`, and `num_threads()` remain as deprecated CmdStanR names.
@@ -114,7 +115,7 @@ These methods need PHP FFI. The first call compiles a shared library for the fit
 
 ### Statistics helpers
 
-`CmdStan\Psis` (`pareto_smooth()`, `pareto_khat()`, `psis()`, `gpdfit()`), `CmdStan\Loo` (`loo()`, `waic()`, `relative_eff()`), `CmdStan\Summary` (`summarise()` and each posterior measure), `CmdStan\Rvars`, and `CmdStan\Inits` (`fromFit()`, `fromDraws()`, `nest()`, `validate()`) operate on plain draws arrays. Their docblocks describe the input and output shapes.
+`CmdStan\Figure` renders computed figures with `ascii()`, `vegaLite()`, `json()`, `html()`, `svg()`, and `png()`; casting a figure to a string gives its ASCII form. `CmdStan\Plot` computes the figures, plus `bandwidth()`, `density()`, `autocorrelation()`, and `ranks()` for the values they draw. `CmdStan\Psis` (`pareto_smooth()`, `pareto_khat()`, `psis()`, `gpdfit()`), `CmdStan\Loo` (`loo()`, `waic()`, `relative_eff()`), `CmdStan\Summary` (`summarise()` and each posterior measure), `CmdStan\Rvars`, and `CmdStan\Inits` (`fromFit()`, `fromDraws()`, `nest()`, `validate()`) operate on plain draws arrays. Their docblocks describe the input and output shapes.
 
 ## Errors
 

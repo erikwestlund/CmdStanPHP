@@ -54,6 +54,8 @@ final class FitIntegrationTest extends TestCase
         $pathfinder = $model->pathfinder(data: $this->data(), seed: 3, show_messages: false, output_dir: $this->dir);
         self::assertSame(2, $this->sample($model, init: $pathfinder)->num_chains()); self::assertSame(2, $this->sample($model, init: $fit)->num_chains());
         $loo = $fit->loo(); self::assertCount(6, $loo['pointwise']); self::assertEqualsWithDelta($loo['elpd_loo'], -$loo['looic'] / 2, 1e-9);
+        self::assertStringContainsString('of 6)', (string)\CmdStan\pareto_k_plot($loo)); self::assertStringContainsString('chain 2 = o', (string)\CmdStan\mcmc_trace($fit, 'mu'));
+        self::assertStringContainsString('X = divergent transition', (string)\CmdStan\mcmc_scatter($fit, 'mu', 'sigma')); self::assertStringContainsString('z[2] |', (string)\CmdStan\mcmc_intervals($fit, ['mu', 'z']));
         self::assertCount(6, $fit->waic()['pointwise']);
         $rvars = $fit->draws(['mu', 'z'], 'draws_rvars'); self::assertSame([2], $rvars['z']['dims']); self::assertCount(200, $rvars['z']['draws'][1]); self::assertSame(2, $rvars['mu']['nchains']);
         $summary = $fit->summary('mu', measures: ['mean', 'rhat', 'range' => fn(array $x) => max($x) - min($x)])[0];

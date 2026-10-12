@@ -32,6 +32,7 @@ This package ports CmdStanR's core model/executable/CSV workflow to PHP. It does
 | PSIS-LOO and WAIC | `CmdStanMCMC::loo()`, `waic()` | Unit tests; loo package comparison |
 | Logs, timing, metrics, configuration JSON, output persistence | Fit methods | Unit and integration tests |
 | Global options | `options()`, `cmdstan_option()` | Unit tests |
+| bayesplot trace, histogram, density, interval, rank, scatter, and autocorrelation plots; loo's Pareto k plot | `mcmc_trace()` and related functions, rendered as ASCII text, Vega-Lite specs, HTML, or SVG/PNG through vl-convert | Unit tests of layout and specs; vl-convert renders in CI; plotted values compared with R and bayesplot |
 | Example models | `cmdstanr_example()`, `print_example_program()` | Real example runs |
 | Deprecated argument and function names | Mapped with `E_USER_DEPRECATED` notices | Unit tests |
 | MPI launching | `sample_mpi()` | Argument construction only; real MPI is unverified |
@@ -63,7 +64,8 @@ The following CmdStanR features have no implementation:
 
 - Moment matching in `loo()`. PSIS-LOO and WAIC are implemented without it.
 - `expose_functions(global = TRUE)`. Functions are called as methods of the returned `StanFunctions` object. Functions ending in `_lp` and overloaded functions are listed but cannot be called.
-- R plotting, posterior `rvar` arithmetic, and R session hooks beyond the options listed above.
+- bayesplot's other plots, including pairs, areas, NUTS energy, and posterior predictive checks. Figures are not ggplot2 objects and cannot be extended with ggplot2 layers or themes.
+- Posterior `rvar` arithmetic and R session hooks beyond the options listed above.
 - Windows toolchain repair (`check_cmdstan_toolchain(fix = TRUE)`). The PHP toolchain check reports missing tools and does not install them.
 - Parity with every CmdStanR version's error and warning messages.
 

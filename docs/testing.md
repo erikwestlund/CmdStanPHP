@@ -12,7 +12,7 @@ composer lint
 composer test
 export CMDSTAN=/absolute/path/to/cmdstan-2.40.0
 composer test:integration
-composer test:compatibility   # additionally needs R + cmdstanr, posterior, loo, jsonlite, Rcpp, RcppEigen
+composer test:compatibility   # additionally needs R + cmdstanr, posterior, loo, bayesplot, jsonlite, Rcpp, RcppEigen
 ```
 
 The unit suite does not need CmdStan. It verifies JSON shapes and invalid data, CSV comments/warmup/special numbers, draw layouts, summaries, diagnostics, serialization, option validation, process argument isolation, pipe draining, timeouts, cancellation, and bounded execution. It uses real PHP subprocesses for process behavior.
@@ -21,11 +21,11 @@ The integration suite compiles the bundled models and invokes real CmdStan metho
 
 Tests use small models and a modest number of draws. They do not constitute a full upstream CmdStanR conformance suite, do not test a real MPI cluster or OpenCL hardware, and do not establish native Windows support. The package's [compatibility contract]({{ '/compatibility/' | relative_url }}) lists remaining gaps.
 
-The compatibility suite runs the same algorithms with CmdStanR and PHP using identical seeds and precision, then compares individual parameter/log-density draws, approximate densities, descriptive summaries, R-hat, bulk/tail ESS, and MCMC diagnostics. MCMC comparisons include even and odd chain lengths. Further comparisons cover CSV metadata keys, in-process log densities, gradients, Hessians, constrain/unconstrain results, exposed Stan functions, PSIS, LOO, WAIC, relative efficiency, and posterior summary measures. R, CmdStanR, posterior, loo, jsonlite, Rcpp, and RcppEigen are needed. These tests skip when their prerequisites are absent.
+The compatibility suite runs the same algorithms with CmdStanR and PHP using identical seeds and precision, then compares individual parameter/log-density draws, approximate densities, descriptive summaries, R-hat, bulk/tail ESS, and MCMC diagnostics. MCMC comparisons include even and odd chain lengths. Further comparisons cover CSV metadata keys, in-process log densities, gradients, Hessians, constrain/unconstrain results, exposed Stan functions, PSIS, LOO, WAIC, relative efficiency, and posterior summary measures. The values behind the figures are compared with R and bayesplot. R, CmdStanR, posterior, loo, bayesplot, jsonlite, Rcpp, and RcppEigen are needed. These tests skip when their prerequisites are absent.
 
 ## Continuous integration
 
-`.github/workflows/tests.yml` runs unit tests on PHP 8.2, 8.3, and 8.4. A separate integration matrix builds CmdStan 2.37 and 2.40 on Linux, runs the real-model suite, and caches each toolchain. The integration jobs enable PHP's FFI extension. The 2.40 job additionally installs the reference R packages and runs the compatibility suite. Installation is performed using this package's installer to exercise its download/build path. Compilation on small CI machines is memory-intensive; integration uses two make jobs.
+`.github/workflows/tests.yml` runs unit tests on PHP 8.2, 8.3, and 8.4. A separate integration matrix builds CmdStan 2.37 and 2.40 on Linux, runs the real-model suite, and caches each toolchain. The integration jobs enable PHP's FFI extension and render every figure kind to SVG, and one to PNG, with a downloaded vl-convert binary. The 2.40 job additionally installs the reference R packages and runs the compatibility suite. Installation is performed using this package's installer to exercise its download/build path. Compilation on small CI machines is memory-intensive; integration uses two make jobs.
 
 ## Documentation site
 

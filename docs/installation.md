@@ -14,7 +14,7 @@ Until a package release is published, clone this repository and run `composer in
 }
 ```
 
-PHP 8.2+ with JSON, Composer, and enabled `proc_open` are required. In-process model methods and `expose_functions()` also need the FFI extension (`ext-ffi`). It is enabled for the CLI by default; web SAPIs need `ffi.enable=true` or preloading. Compilation needs make and a C++ toolchain supported by [CmdStan](https://mc-stan.org/docs/cmdstan-guide/installation.html). On macOS install the Xcode command-line tools. On Linux install a C++ compiler and make. Windows requires CmdStan's supported Windows toolchain; native Windows has not been validated by this project's CI. WSL offers the tested Linux execution path.
+PHP 8.2+ with JSON, Composer, and enabled `proc_open` are required. In-process model methods and `expose_functions()` also need the FFI extension (`ext-ffi`). It is enabled for the CLI by default; web SAPIs need `ffi.enable=true` or preloading. Rendering figures as SVG or PNG needs the [vl-convert](https://github.com/vega/vl-convert/releases) binary; ASCII, Vega-Lite, and HTML output need nothing extra. Compilation needs make and a C++ toolchain supported by [CmdStan](https://mc-stan.org/docs/cmdstan-guide/installation.html). On macOS install the Xcode command-line tools. On Linux install a C++ compiler and make. Windows requires CmdStan's supported Windows toolchain; native Windows has not been validated by this project's CI. WSL offers the tested Linux execution path.
 
 ## CmdStan selection
 
