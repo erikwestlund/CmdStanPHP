@@ -109,13 +109,13 @@ These methods need PHP FFI. The first call compiles a shared library for the fit
 
 ### Method-specific fit methods
 
-`CmdStanMCMC` adds `loo(variables: 'log_lik', r_eff: true, moment_match: false)` and `waic(variables: 'log_lik')`. Both return `estimates` (each with `Estimate` and `SE`), `pointwise` rows, and flat keys such as `elpd_loo` and `se_elpd_loo`; LOO also returns `diagnostics` with Pareto k values. `moment_match: true` throws.
+`CmdStanMCMC` adds `loo(variables: 'log_lik', r_eff: true, moment_match: false, max_iters: 30, k_threshold: null, split: true, cov: true)` and `waic(variables: 'log_lik')`. Both return `estimates` (each with `Estimate` and `SE`), `pointwise` rows, and flat keys such as `elpd_loo` and `se_elpd_loo`; LOO also returns `diagnostics` with Pareto k values. `moment_match: true` needs model methods and the `php_stats` posterior-draw kernels, and adds a `moment_match` key; see the inference guide.
 
 `CmdStanMLE` adds `mle()`/`optimized_params()` (final optimizer row) and `lp()`; its `summary()` returns `variable`/`estimate` rows, matching CmdStanR's optimization summary. `CmdStanVB` adds `variational_mean()` and `lp_approx()`. Pathfinder and Laplace also expose `lp_approx()`; Laplace exposes `mode()`, and generated quantities fits expose `fitted_params_files()`. `CmdStanPathfinder` adds `single_path_files()`, `single_path_json_files()`, `single_path_fits()`, and `single_path_diagnostics()` for runs with `save_single_paths: true`. `CmdStanDiagnose` adds `gradients()` (gradient-check console output).
 
 ### Statistics helpers
 
-`CmdStan\Figure` renders computed figures with `ascii()`, `vegaLite()`, `json()`, `html()`, `svg()`, and `png()`; casting a figure to a string gives its ASCII form. `CmdStan\Plot` computes the figures, plus `bandwidth()`, `density()`, `autocorrelation()`, and `ranks()` for the values they draw. `CmdStan\Psis` (`pareto_smooth()`, `pareto_khat()`, `psis()`, `gpdfit()`), `CmdStan\Loo` (`loo()`, `waic()`, `relative_eff()`), `CmdStan\Summary` (`summarise()` and each posterior measure), `CmdStan\Rvars`, and `CmdStan\Inits` (`fromFit()`, `fromDraws()`, `nest()`, `validate()`) operate on plain draws arrays. Their docblocks describe the input and output shapes.
+`CmdStan\Figure` renders computed figures with `ascii()`, `vegaLite()`, `json()`, `html()`, `svg()`, and `png()`; casting a figure to a string gives its ASCII form. `CmdStan\Plot` computes the figures, plus `bandwidth()`, `density()`, `autocorrelation()`, and `ranks()` for the values they draw. `CmdStan\Psis` (`pareto_smooth()`, `pareto_khat()`, `psis()`, `gpdfit()`), `CmdStan\Loo` (`loo()`, `waic()`, `relative_eff()`), `CmdStan\MomentMatch` (`loo()` on unconstrained draws with log-density and log-likelihood callbacks, `fromFit()`), `CmdStan\DrawKernels` (detection of and wrappers for the `php_stats` draw kernels), `CmdStan\Summary` (`summarise()` and each posterior measure), `CmdStan\Rvars`, and `CmdStan\Inits` (`fromFit()`, `fromDraws()`, `nest()`, `validate()`) operate on plain draws arrays. Their docblocks describe the input and output shapes.
 
 ## Errors
 

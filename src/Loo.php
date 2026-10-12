@@ -6,7 +6,7 @@ namespace CmdStan;
  *
  * Log-likelihood input is a draws_array [iteration][chain][observation] (inner arrays may be keyed by names such as
  * 'log_lik[1]', as CmdStanFit::draws() returns) or a draws_matrix [draw][observation], treated as a single chain.
- * Draws are flattened chain-major like loo's llarray_to_matrix(). Moment matching is not implemented.
+ * Draws are flattened chain-major like loo's llarray_to_matrix(). Moment matching is in MomentMatch (CmdStanMCMC::loo(moment_match: true)).
  */
 final class Loo
 {
@@ -102,13 +102,14 @@ final class Loo
         }
         return ['k_threshold' => $threshold, 'rows' => $rows];
     }
-    private static function relativeEffColumns(array $columns, int $chains): array
+    /** @internal */
+    public static function relativeEffColumns(array $columns, int $chains): array
     {
         $s = count($columns[0] ?? []); $n = intdiv($s, $chains);
         return array_map(fn($column) => Summary::ess_mean(array_chunk($column, $n)) / $s, $columns);
     }
-    /** loo:::mcse_elpd for one observation. */
-    private static function mcseElpd(array $ll, array $lw, float $elpd, float $r_eff): float
+    /** @internal loo:::mcse_elpd for one observation. */
+    public static function mcseElpd(array $ll, array $lw, float $elpd, float $r_eff): float
     {
         if (is_infinite($elpd) && $elpd < 0) { return NAN; }
         $sum = 0.0;
@@ -123,15 +124,15 @@ final class Loo
         $lvr = Special::logSumExp($terms) - log($r_eff);
         return sqrt($lvr > 0 ? $lvr + log1p(exp(-$lvr)) : log1p(exp($lvr)));
     }
-    /** loo:::table_of_estimates: column sums and sqrt(N * var). */
-    private static function estimates(array $pointwise, array $names): array
+    /** @internal loo:::table_of_estimates: column sums and sqrt(N * var). */
+    public static function estimates(array $pointwise, array $names): array
     {
         $out = [];
         foreach ($names as $name) { $values = array_column($pointwise, $name); $out[$name] = ['Estimate' => array_sum($values), 'SE' => sqrt(count($values) * Special::variance($values))]; }
         return $out;
     }
-    /** @return array{0: list<list<float>>, 1: int, 2: list<string|int>} observation columns (chain-major draws), number of chains, observation names */
-    private static function columns(array $x): array
+    /** @internal @return array{0: list<list<float>>, 1: int, 2: list<string|int>} observation columns (chain-major draws), number of chains, observation names */
+    public static function columns(array $x): array
     {
         $x = array_values($x);
         if ($x === []) { throw new \InvalidArgumentException('Log-likelihood draws must not be empty.'); }

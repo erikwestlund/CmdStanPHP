@@ -30,6 +30,7 @@ This package ports CmdStanR's core model/executable/CSV workflow to PHP. It does
 | Draw selection/formats, including `draws_rvars` | `draws()` | Unit tests; posterior comparison |
 | Summaries, custom summary measures, diagnostics | `summary()`, `diagnostic_summary()` | Unit and real posterior tests; posterior comparison |
 | PSIS-LOO and WAIC | `CmdStanMCMC::loo()`, `waic()` | Unit tests; loo package comparison |
+| Moment matching in `loo()` | `loo(moment_match: true)` through model methods and the `php_stats` draw kernels | Unit tests on analytic posteriors; loo package comparison; same-seed CmdStanR comparison |
 | Logs, timing, metrics, configuration JSON, output persistence | Fit methods | Unit and integration tests |
 | Global options | `options()`, `cmdstan_option()` | Unit tests |
 | bayesplot trace, histogram, density, interval, rank, scatter, and autocorrelation plots; loo's Pareto k plot | `mcmc_trace()` and related functions, rendered as ASCII text, Vega-Lite specs, HTML, or SVG/PNG through vl-convert | Unit tests of layout and specs; vl-convert renders in CI; plotted values compared with R and bayesplot |
@@ -58,11 +59,12 @@ Diagnostic checks are structured messages accessible with `diagnostic_warnings()
 
 Algorithm parameters left null use CmdStan's defaults. PHP-level defaults include four sample chains, sequential execution unless requested, and one MPI chain. CmdStanR defaults for automatically saving metric/configuration JSON are not imposed; request `save_metric` or `save_cmdstan_config` explicitly. The installer defaults to one core where CmdStanR uses two. OpenCL and MPI require external toolchains/hardware. Windows has not been validated.
 
+Moment matching follows `loo::loo_moment_match()` as `CmdStanMCMC$loo()` calls it, with corrections to the split step and relative efficiencies. The split uses the exact inverse of the accumulated affine map, where loo subtracts the shift after the inverse linear map. The split relative efficiency is the minimum over both halves, where loo uses the second half twice. Relative efficiencies use exp(log_lik − max), which avoids the NA that loo returns when every likelihood value is tiny. Without the split, and with the split when only shifts are accepted, `elpd_loo` and Pareto k match loo and CmdStanR. Accepted scale and covariance steps are composed in their original order, including cases where scaling follows a covariance map. A singular weighted covariance uses loo's identity-map fallback while retaining the mean shift; its reason is recorded in `covariance_fallbacks`. Other numerical or model failures stop the observation at its last accepted state and record a reason. Covariances are never regularized. The [inference guide]({{ '/inference/' | relative_url }}) describes the result.
+
 ## Not implemented
 
 The following CmdStanR features have no implementation:
 
-- Moment matching in `loo()`. PSIS-LOO and WAIC are implemented without it.
 - `expose_functions(global = TRUE)`. Functions are called as methods of the returned `StanFunctions` object. Functions ending in `_lp` and overloaded functions are listed but cannot be called.
 - bayesplot's other plots, including pairs, areas, NUTS energy, and posterior predictive checks. Figures are not ggplot2 objects and cannot be extended with ggplot2 layers or themes.
 - Posterior `rvar` arithmetic and R session hooks beyond the options listed above.
