@@ -1,0 +1,41 @@
+# CmdStanPHP
+
+A PHP 8.2+ interface to [CmdStan](https://mc-stan.org/users/interfaces/cmdstan), with the model and fit API patterned after [CmdStanR](https://mc-stan.org/cmdstanr/). Runs real Stan programs through CmdStan; no R installation or PHP framework is needed.
+
+Supports compilation, parallel MCMC, optimization, ADVI, Pathfinder, Laplace, standalone generated quantities, gradient diagnostics, log density, Stan JSON, CSV import/export, posterior summaries, and fit persistence. In-process log densities, gradients, Hessians, constrain/unconstrain methods, and `expose_functions()` use PHP FFI. Fits can initialize new runs, and MCMC fits compute PSIS-LOO and WAIC. MPI launching is implemented but requires an MPI toolchain and is not covered by the local integration suite. **This is not a complete replacement for every CmdStanR feature.** See the [compatibility contract](docs/compatibility.md) for exact differences and unimplemented features.
+
+```sh
+composer install
+export CMDSTAN=/absolute/path/to/cmdstan-2.40.0
+php examples/bernoulli.php
+```
+
+```php
+require 'vendor/autoload.php';
+
+$model = CmdStan\cmdstan_model('examples/bernoulli.stan');
+$fit = $model->sample(
+    data: ['N' => 10, 'y' => [0,1,0,0,0,0,0,0,0,1]],
+    chains: 4, parallel_chains: 2, seed: 123,
+    iter_warmup: 500, iter_sampling: 500,
+    show_messages: false,
+);
+$summary = $fit->summary('theta');
+$draws = $fit->draws('theta', format: 'draws_df');
+$diagnostics = $fit->diagnostic_summary();
+```
+
+An existing CmdStan installation is discovered from `CMDSTAN` or `~/.cmdstan/cmdstan-*`. You can also call `CmdStan\set_cmdstan_path()`. Installing a specified official release is supported with `CmdStan\install_cmdstan('2.37.0', cores: 2)`; this requires curl, tar, make, a supported C++ compiler, internet access, and enough memory for compilation. `release_url` and `release_file` install from another tarball.
+
+Documentation lives in [docs/](docs/index.md), including installation, inference, API reference, compatibility, and testing. GitHub Actions builds and deploys it to GitHub Pages; select **Settings → Pages → Source → GitHub Actions** after the repository is published. No site has been published from this workspace.
+
+```sh
+composer test                 # unit suite, no CmdStan needed
+composer test:integration     # real CmdStan, discovered as above
+composer test:compatibility   # direct R/PHP comparisons; needs R packages
+composer lint
+```
+
+The integration suite exercises all eight CmdStan methods, posterior accuracy, reproducibility, parallel chains, generated quantities, FFI model methods and functions, and errors. CI runs PHP 8.2–8.4 and CmdStan 2.37/2.40 on Linux. See [testing](docs/testing.md) for coverage boundaries.
+
+MIT licensed. The example models in `resources/examples/` come from CmdStanR under its BSD 3-Clause license (see the `NOTICE` there). CmdStan and CmdStanR are separate Stan projects; this package is an independent implementation, not an official Stan interface.

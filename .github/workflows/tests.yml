@@ -1,0 +1,63 @@
+name: Tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.3', '8.4']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist
+      - run: composer validate --strict
+      - run: composer lint
+      - run: composer test
+  integration:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cmdstan: ['2.37.0', '2.40.0']
+    env:
+      CMDSTAN: ${{ github.workspace }}/.context/cmdstan/cmdstan-${{ matrix.cmdstan }}
+      CMDSTAN_RELEASE: ${{ matrix.cmdstan }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: ffi
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist
+      - uses: actions/cache@v4
+        id: cmdstan-cache
+        with:
+          path: .context/cmdstan
+          key: cmdstan-${{ runner.os }}-${{ runner.arch }}-${{ matrix.cmdstan }}-v1
+      - name: Install and build CmdStan
+        if: steps.cmdstan-cache.outputs.cache-hit != 'true'
+        run: php -r 'require "vendor/autoload.php"; CmdStan\install_cmdstan(getenv("CMDSTAN_RELEASE"), ".context/cmdstan", 2, 1800);'
+      - run: composer test:integration
+      - uses: r-lib/actions/setup-r@v2
+        if: matrix.cmdstan == '2.40.0'
+        with:
+          use-public-rspm: true
+      - name: Install reference R packages
+        if: matrix.cmdstan == '2.40.0'
+        run: Rscript -e 'install.packages(c("cmdstanr", "posterior", "loo", "jsonlite", "Rcpp", "RcppEigen"), repos = c("https://stan-dev.r-universe.dev", "https://cloud.r-project.org"))'
+      - name: Compare with CmdStanR
+        if: matrix.cmdstan == '2.40.0'
+        run: composer test:compatibility

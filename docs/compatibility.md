@@ -1,0 +1,70 @@
+---
+layout: page
+title: Compatibility contract
+---
+
+This package ports CmdStanR's core model/executable/CSV workflow to PHP. It does **not** claim full CmdStanR compatibility. The reference is the [CmdStanR API](https://mc-stan.org/cmdstanr/reference/) and [CmdStan CLI](https://mc-stan.org/docs/cmdstan-guide/command_line_options.html), consulted during implementation. PHP interfaces preserve modern method and option names wherever their meaning transfers directly.
+
+## Supported workflows
+
+| CmdStanR capability | PHP implementation | Verification |
+| --- | --- | --- |
+| Installation path/version, source/JSON writing | Namespaced functions | Unit tests, local version detection; installer build is a CI step |
+| Installation from a release URL or local tarball, overwrite, `make/local` | `install_cmdstan()`, `cmdstan_make_local()` | Offline tests with generated tarballs; network downloads are exercised only by CI's official-release install |
+| Model construction and compilation | `CmdStanModel`, `cmdstan_model()` | Real C++ builds |
+| Syntax, formatting, declaration information | stanc invocation | Real stanc tests |
+| MCMC, parallel chains, warmup, IDs/seeds | `CmdStanMCMC` | Real posterior and reproducibility tests |
+| BFGS/L-BFGS/Newton optimization | `CmdStanMLE` | Real L-BFGS and algorithm tests |
+| ADVI meanfield/fullrank | `CmdStanVB` | Real ADVI tests |
+| Single/multi-path Pathfinder, per-path fits | `CmdStanPathfinder`, `single_path_fits()` | Real multi-path tests |
+| Laplace with supplied or automatic mode | `CmdStanLaplace` | Real tests for both modes |
+| Standalone generated quantities | `CmdStanGQ` | Real multi-chain prediction tests |
+| Fixed-parameter sampling | `sample(fixed_param: true)` | Real generated quantities test |
+| Finite-difference gradient checking | `CmdStanDiagnose` | Real model diagnostic test |
+| Batch log density and gradients | Executable `log_prob` method | Real log-density test |
+| In-process log density, gradient, Hessian, constrain/unconstrain, variable skeleton | `init_model_methods()` and fit methods through PHP FFI | Real model tests; CmdStanR comparison |
+| Calling user-defined Stan functions | `expose_functions()` through PHP FFI | Real function tests; CmdStanR comparison |
+| Initialization from MCMC, optimization, ADVI, Laplace, and Pathfinder fits | `init: $fit` | Real fit tests; unit tests of dimension matching and PSIS weighting |
+| CSV import/export, warmup removal, indexed names | `read_cmdstan_csv()`, `read_cmdstan_csv_list()`, `draws_to_csv()` | Unit round trips and real CSV imports |
+| CSV metadata structure | `metadata()`, `chain_metadata()` | Key-by-key comparison with CmdStanR for five methods |
+| Draw selection/formats, including `draws_rvars` | `draws()` | Unit tests; posterior comparison |
+| Summaries, custom summary measures, diagnostics | `summary()`, `diagnostic_summary()` | Unit and real posterior tests; posterior comparison |
+| PSIS-LOO and WAIC | `CmdStanMCMC::loo()`, `waic()` | Unit tests; loo package comparison |
+| Logs, timing, metrics, configuration JSON, output persistence | Fit methods | Unit and integration tests |
+| Global options | `options()`, `cmdstan_option()` | Unit tests |
+| Example models | `cmdstanr_example()`, `print_example_program()` | Real example runs |
+| Deprecated argument and function names | Mapped with `E_USER_DEPRECATED` notices | Unit tests |
+| MPI launching | `sample_mpi()` | Argument construction only; real MPI is unverified |
+| Threads, OpenCL, auxiliary files | CLI/C++ options | Thread and auxiliary-file tests; OpenCL hardware is unverified |
+
+## PHP adaptations
+
+R named lists become associative PHP arrays; numeric arrays must be rectangular zero-indexed lists. R factors, data frames, sparse matrices, complex numbers, NA, and automatic R object conversion have no PHP equivalent. `code()` returns one source string. Syntax errors throw exceptions rather than returning an R diagnostic list.
+
+R posterior objects become PHP arrays with documented shapes. All array indices are zero-based; draw metadata is one-based. `draws_array` retains iteration/chain axes, `draws_matrix` concatenates chains, `draws_df` is associative rows, `draws_list` maps variables to values per chain, and `draws_rvars` nests each variable's draws by its dimensions. R tibble, posterior, bayesplot, and ggplot2 classes are not emulated. The default draws format follows CmdStanR: `draws_array` for MCMC and generated quantities and `draws_matrix` for other methods.
+
+Summary quantiles use linear interpolation (R's default type 7). Scaled MAD uses 1.4826. The default MCMC summary delegates R-hat and bulk ESS to the installed CmdStan `stansummary` and computes tail ESS in PHP. Passing `measures` to `summary()` uses a PHP port of posterior's `summarise_draws()`, including rank-normalized R-hat, bulk/tail ESS, and MCSE, so it does not need CmdStan. Results are checked against the installed reference R packages, but are not guaranteed bit-for-bit identical to every version of posterior. ADVI's mean row is stored separately. ADVI and Laplace `log_p__` columns are normalized to `lp__` and their approximate densities to `lp_approx__`, matching CmdStanR. Non-MCMC convergence statistics are `NAN`.
+
+`metadata()` returns one merged array with CmdStanR's keys, such as `iter_sampling`, `max_treedepth`, and `stan_variable_sizes`, alongside CmdStan's raw argument names. `chain_metadata()` returns the per-chain arrays. `inv_metric()` returns matrices by default and reads metric JSON when every chain has one.
+
+Model methods and exposed functions compile a shared library against the selected CmdStan and load it with PHP FFI. FFI is enabled for the CLI by default (`ffi.enable=preload`); web SAPIs need `ffi.enable=true` or preloading. Libraries are cached beside the Stan source with a fingerprint in the file name. Model methods drop constant terms and default to `jacobian: true`, as in CmdStanR. Unconstrained vectors are flat lists, and constrained variables are nested zero-based arrays with matrices as lists of rows. Fits serialize the library path, data, and seed, and reconnect on first use; the generated-quantities RNG then restarts from its seed.
+
+Initialization from a fit follows CmdStanR's `process_init()`. MCMC draws are resampled without replacement, an optimization estimate is repeated, and ADVI, Laplace, and Pathfinder draws are resampled with Pareto-smoothed importance weights. Resampling uses PHP's seeded Mt19937 engine, so a given seed selects different draws than CmdStanR does.
+
+Diagnostic checks are structured messages accessible with `diagnostic_warnings()`, rather than PHP runtime warnings. Console output is buffered; there is no R progress-bar or interrupt integration. `show_messages` controls stdout, `show_exceptions` controls stderr. Deprecated CmdStanR argument names raise `E_USER_DEPRECATED` and map to their replacements; conflicting old and new values throw. Output files persist after garbage collection, so callers manage cleanup explicitly. Saving moves files that a run created and copies imported CSVs and user-supplied data files; existing destinations are never overwritten. Saved fit objects use PHP serialization and embed parsed results; CSVs are still needed for downstream CmdStan commands.
+
+`options()` and `cmdstan_option()` provide CmdStanR's global options that have a PHP meaning: default output directory, Stan file directory, forced recompilation, draws format, initialization warnings, verbose compilation, printed rows, line numbers, and `mc.cores`. `cmdstanr_no_ver_check` is accepted and has no effect because this package never checks for updates.
+
+Algorithm parameters left null use CmdStan's defaults. PHP-level defaults include four sample chains, sequential execution unless requested, and one MPI chain. CmdStanR defaults for automatically saving metric/configuration JSON are not imposed; request `save_metric` or `save_cmdstan_config` explicitly. The installer defaults to one core where CmdStanR uses two. OpenCL and MPI require external toolchains/hardware. Windows has not been validated.
+
+## Not implemented
+
+The following CmdStanR features have no implementation:
+
+- Moment matching in `loo()`. PSIS-LOO and WAIC are implemented without it.
+- `expose_functions(global = TRUE)`. Functions are called as methods of the returned `StanFunctions` object. Functions ending in `_lp` and overloaded functions are listed but cannot be called.
+- R plotting, posterior `rvar` arithmetic, and R session hooks beyond the options listed above.
+- Windows toolchain repair (`check_cmdstan_toolchain(fix = TRUE)`). The PHP toolchain check reports missing tools and does not install them.
+- Parity with every CmdStanR version's error and warning messages.
+
+No unsupported option is accepted silently. This repository's tests validate the implemented contract against the installed CmdStanR, posterior, and loo packages; they are not the upstream CmdStanR test suite. Direct conformance tests run CmdStanR and PHP with the same seeds and compare draws, descriptive summaries, MCMC sampler diagnostics, CSV metadata, model methods, exposed functions, PSIS, LOO, WAIC, and posterior summary measures.
