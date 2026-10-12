@@ -44,7 +44,7 @@ final class MomentMatchIntegrationTest extends TestCase
         $outlier = 11; $matched = array_column($mm['moment_match']['observations'], null, 'index');
         self::assertGreaterThan($plain['k_threshold'], $plain['diagnostics']['pareto_k'][$outlier]);
         self::assertArrayHasKey($outlier, $matched); self::assertSame('log_lik[12]', $matched[$outlier]['observation']);
-        self::assertLessThan($matched[$outlier]['pareto_k_initial'], $matched[$outlier]['pareto_k']); self::assertNotSame([], $matched[$outlier]['transforms']);
+        self::assertLessThan($matched[$outlier]['pareto_k_initial'], $matched[$outlier]['pareto_k'], var_export($matched[$outlier], true)); self::assertNotSame([], $matched[$outlier]['transforms']);
         self::assertSame($matched[$outlier]['pareto_k'], $mm['diagnostics']['pareto_k'][$outlier]);
         foreach ($plain['pointwise'] as $j => $row) { if (!isset($matched[$j])) { self::assertSame($row, $mm['pointwise'][$j]); } }
         self::assertLessThan($plain['pointwise'][$outlier]['elpd_loo'], $mm['pointwise'][$outlier]['elpd_loo'], 'PSIS overestimates the outlier\'s LOO density.');
