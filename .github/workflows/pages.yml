@@ -12,7 +12,28 @@ concurrency:
   group: pages-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: docs
+      - name: Build documentation at a project-site path
+        working-directory: docs
+        env:
+          JEKYLL_ENV: production
+          SITE_BASE_PATH: /${{ github.event.repository.name }}
+        run: bundle exec jekyll build --baseurl "$SITE_BASE_PATH" --destination ../.context/site
+      - name: Check documentation links
+        env:
+          SITE_BASE_PATH: /${{ github.event.repository.name }}
+        run: python3 scripts/check-docs.py .context/site --baseurl "$SITE_BASE_PATH"
   build:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

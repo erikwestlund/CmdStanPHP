@@ -42,6 +42,30 @@ jobs:
           coverage: none
           tools: composer:v2
       - run: composer install --no-interaction --prefer-dist
+      - name: Check out posterior-draw kernels
+        uses: actions/checkout@v4
+        with:
+          repository: erikwestlund/php-stat-models
+          ref: e7457cb4267dd78307ae5b2863efa9578644a33a
+          path: .context/php-stat-models
+          persist-credentials: false
+      - name: Install matching PHP headers and clang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y php8.4-dev clang libclang-dev
+          test "$(php-config8.4 --version | cut -d. -f1,2)" = "$(php -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;')"
+          {
+            echo "PHP_CONFIG=$(command -v php-config8.4)"
+            echo "PHP=$(command -v php)"
+            echo "PHP_STATS_LIBRARY=$PWD/.context/php-stat-models/target/release/libphp_stats.so"
+          } >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build and verify php_stats
+        run: |
+          cargo build --manifest-path .context/php-stat-models/Cargo.toml --package php-stats --release --locked
+          php -d extension="$PHP_STATS_LIBRARY" -r 'require "vendor/autoload.php"; CmdStan\DrawKernels::require(); if (!extension_loaded("ffi") || !function_exists("stats_normal_rng")) { throw new RuntimeException("FFI and seeded native draws are required by CI"); }'
+      - name: Test native kernels and moment matching
+        run: php -d extension="$PHP_STATS_LIBRARY" vendor/bin/phpunit --filter '(DrawKernelsTest|MomentMatchTest)' --exclude-group integration --exclude-group compatibility --fail-on-skipped
       - uses: actions/cache@v4
         id: cmdstan-cache
         with:
@@ -50,13 +74,14 @@ jobs:
       - name: Install and build CmdStan
         if: steps.cmdstan-cache.outputs.cache-hit != 'true'
         run: php -r 'require "vendor/autoload.php"; CmdStan\install_cmdstan(getenv("CMDSTAN_RELEASE"), ".context/cmdstan", 2, 1800);'
-      - run: composer test:integration
+      - name: Test real CmdStan models
+        run: php -d extension="$PHP_STATS_LIBRARY" vendor/bin/phpunit --group integration --exclude-group compatibility --fail-on-skipped
       - name: Render figures with vl-convert
         run: |
           mkdir -p .context/vl-convert
           curl --fail --location --proto =https --output .context/vl-convert/vl.zip https://github.com/vega/vl-convert/releases/download/v1.9.0/vl-convert_linux-64.zip
           unzip -q .context/vl-convert/vl.zip -d .context/vl-convert
-          VL_CONVERT="$PWD/.context/vl-convert/bin/vl-convert" vendor/bin/phpunit --filter VlConvert tests/PlotTest.php
+          VL_CONVERT="$PWD/.context/vl-convert/bin/vl-convert" php -d extension="$PHP_STATS_LIBRARY" vendor/bin/phpunit --filter VlConvert tests/PlotTest.php --fail-on-skipped
       - uses: r-lib/actions/setup-r@v2
         if: matrix.cmdstan == '2.40.0'
         with:
@@ -66,4 +91,4 @@ jobs:
         run: Rscript -e 'install.packages(c("cmdstanr", "posterior", "loo", "bayesplot", "jsonlite", "Rcpp", "RcppEigen"), repos = c("https://stan-dev.r-universe.dev", "https://cloud.r-project.org"))'
       - name: Compare with CmdStanR
         if: matrix.cmdstan == '2.40.0'
-        run: composer test:compatibility
+        run: php -d extension="$PHP_STATS_LIBRARY" vendor/bin/phpunit --group compatibility --fail-on-skipped
