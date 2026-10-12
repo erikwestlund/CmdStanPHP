@@ -40,7 +40,7 @@ jobs:
           php-version: '8.4'
           extensions: ffi
           coverage: none
-          tools: composer:v2
+          tools: composer:v2, php-config, phpize
       - run: composer install --no-interaction --prefer-dist
       - name: Check out posterior-draw kernels
         uses: actions/checkout@v4
@@ -52,10 +52,10 @@ jobs:
       - name: Install matching PHP headers and clang
         run: |
           sudo apt-get update
-          sudo apt-get install -y php8.4-dev clang libclang-dev
-          test "$(php-config8.4 --version | cut -d. -f1,2)" = "$(php -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;')"
+          sudo apt-get install -y clang libclang-dev
+          test "$(php-config --version | cut -d. -f1,2)" = "$(php -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;')"
           {
-            echo "PHP_CONFIG=$(command -v php-config8.4)"
+            echo "PHP_CONFIG=$(command -v php-config)"
             echo "PHP=$(command -v php)"
             echo "PHP_STATS_LIBRARY=$PWD/.context/php-stat-models/target/release/libphp_stats.so"
           } >> "$GITHUB_ENV"
