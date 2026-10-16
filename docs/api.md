@@ -91,7 +91,7 @@ Thread options are aliases, with precedence `threads_per_chain`, `threads`, then
 - `save_output_files()`, `save_latent_dynamics_files()`, `save_profile_files()`, `save_data_file()`, `save_config_files()`, `save_metric_files()`: each takes `dir: '.', basename: null, timestamp: true, random: true` and names files `basename-YYYYmmddHHMM-id-xxxxxx.ext` as CmdStanR does. Files created by the run are moved; imported and user-supplied files are copied. Existing destinations are never overwritten.
 - `save_object(file)`: serialize parsed fit data (and native MCMC summary statistics) to a PHP object file.
 - `print(variables: null, max_rows: null)`: emit summary JSON to stdout, limited to `cmdstanr_max_rows` (default 10) variables.
-- `drawsColumns()`, `summaryColumns()`, `toFrame()`, `summaryFrame()`: column-oriented draws and summaries for data frames; see [data frames](#data-frames-and-the-phpstats-family).
+- `draws_columns()`, `summary_columns()`, `to_frame()`, `summary_frame()`: column-oriented draws and summaries for data frames; see [data frames](#data-frames-and-the-phpstats-family).
 
 ### Model methods
 
@@ -135,9 +135,9 @@ Every `data` argument (`sample()`, `sample_mpi()`, `optimize()`, `variational()`
 | string | A factor with sorted unique levels (`strcmp` order, as phibble's and R's `factor()` defaults) |
 | null, dates, other objects | Rejected with the column name and row, because Stan data has no missing values |
 
-Factor levels come from a `toModelData()` descriptor (`['levels' => list<string>, 'codes' => list<?int>, 'ordered' => bool]`, with phibble's 0-based codes; add `'base' => 1` for 1-based codes) or, for a `toColumns()` table, from `levels($name)` when `types()` reports a factor. The `ordered` flag is ignored. Labels cannot be written to Stan JSON, so they are returned in `StanData::$levels`, keyed by data variable, where label `i` has index `i + 1`. The conversion adds `N`, the row count, unless the table has a column named `N`, and adds `J_<name>` unless a column already has that name. CmdStan ignores data variables that the program does not declare. Column names must be valid Stan identifiers.
+Factor levels come from a `toModelData()` descriptor (`['levels' => list<string>, 'codes' => list<?int>, 'ordered' => bool]`, with 0-based codes, as phibble's `Frame::toModelData()` returns them since phibble [93858fa](https://github.com/erikwestlund/phibble/commit/93858fa); add `'base' => 1` for 1-based codes) or, for a `toColumns()` table, from `levels($name)` when `types()` reports a factor. The `ordered` flag is ignored. Labels cannot be written to Stan JSON, so they are returned in `StanData::$levels`, keyed by data variable, where label `i` has index `i + 1`. The conversion adds `N`, the row count, unless the table has a column named `N`, and adds `J_<name>` unless a column already has that name. CmdStan ignores data variables that the program does not declare. Column names must be valid Stan identifiers.
 
-`StanData` is a value object with readonly `data`, `levels`, `columns` (the names of the columns of `X`), and `meta`. `toArray()` returns `data`, and `with(['prior_scale' => 2.5])` adds or replaces variables.
+Fit methods use CmdStanR-style snake_case names. `StanData` and `Tables` constructors use camelCase `from...()` names, like the package's other static helpers such as `CmdStanFit::fromCsv()` and `Inits::fromFit()`. `StanData` is a value object with readonly `data`, `levels`, `columns` (the names of the columns of `X`), and `meta`. `toArray()` returns `data`, and `with(['prior_scale' => 2.5])` adds or replaces variables.
 
 ### Regression data
 
@@ -175,9 +175,9 @@ data {
 
 ### Draws and summaries out
 
-- `drawsColumns(variables: null, inc_warmup: false)` returns draws as columns, like posterior's `as_draws_df()`: one list per variable element (such as `beta[2]`), then one-based `.chain`, `.iteration`, and `.draw` columns.
-- `summaryColumns(variables: null, probs: [0.05, 0.95], measures: [])` returns `summary()` as columns: `variable` and one column per measure.
-- `toFrame()` and `summaryFrame()` take the same arguments and return a `Phibble\Frame` built with `Frame::fromColumns()`. They need `erikwestlund/phibble`, which requires PHP 8.5, and throw a `RuntimeException` explaining this when it is not installed.
+- `draws_columns(variables: null, inc_warmup: false)` returns draws as columns, like posterior's `as_draws_df()`: one list per variable element (such as `beta[2]`), then one-based `.chain`, `.iteration`, and `.draw` columns.
+- `summary_columns(variables: null, probs: [0.05, 0.95], measures: [])` returns `summary()` as columns: `variable` and one column per measure.
+- `to_frame()` and `summary_frame()` take the same arguments and return a `Phibble\Frame` built with `Frame::fromColumns()`. They need `erikwestlund/phibble`, which requires PHP 8.5, and throw a `RuntimeException` explaining this when it is not installed.
 - `CmdStan\Tables::fromRows($rows)` converts any list of associative rows, such as `loo()['pointwise']`, to columns.
 
 The column arrays need no other package and suit any data frame library that accepts name-to-values columns.

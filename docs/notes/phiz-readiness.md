@@ -38,7 +38,7 @@ These stay in CmdStanPHP and would later be rebuilt on phiz layers:
 2. Layers for lines, bars with explicit `x`/`x2` bin edges, rules at constant values, and points with conditional color.
 3. Row faceting with shared y scales and custom header labels.
 4. Rendering to a spec array, JSON, standalone HTML, and SVG/PNG through vl-convert, with the escaping and version pinning listed above.
-5. A PHP floor compatible with CmdStanPHP. phiz targets PHP 8.5, and CmdStanPHP supports 8.2. Until CmdStanPHP raises its floor, phiz can only be optional: `Figure` would keep its current renderers and could add a `toPhiz()` method when phiz is installed, using the same class detection as `toFrame()`.
+5. A PHP floor compatible with CmdStanPHP. phiz targets PHP 8.5, and CmdStanPHP supports 8.2. Until CmdStanPHP raises its floor, phiz can only be optional: `Figure` would keep its current renderers and could add a `toPhiz()` method when phiz is installed, using the same class detection as `to_frame()`.
 
 ## Proposed sequence
 

@@ -23,7 +23,7 @@ final class Tables
         return $columns;
     }
     /** A Phibble\Frame from columns; throws with installation advice when phibble is not installed. */
-    public static function frame(array $columns, string $method = 'toFrame()'): object
+    public static function frame(array $columns, string $method = 'to_frame()'): object
     {
         if (!class_exists(self::FRAME_CLASS)) { throw new \RuntimeException($method.' needs the phibble data frame package (composer require erikwestlund/phibble; it requires PHP 8.5). Without it, use the column arrays directly.'); }
         $class = self::FRAME_CLASS;

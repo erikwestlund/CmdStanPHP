@@ -34,8 +34,8 @@ Model data can be a plain array, a [phibble](https://github.com/erikwestlund/phi
 ```php
 $data = CmdStan\StanData::fromColumns($frame, 'score', ['hours'], 'school');
 $fit = $model->sample(data: $data, seed: 1);
-$draws = $fit->drawsColumns('beta');   // ['beta[1]' => [...], '.chain' => [...], '.iteration' => [...], '.draw' => [...]]
-$frame = $fit->toFrame('beta');        // Phibble\Frame; needs erikwestlund/phibble
+$draws = $fit->draws_columns('beta');   // ['beta[1]' => [...], '.chain' => [...], '.iteration' => [...], '.draw' => [...]]
+$frame = $fit->to_frame('beta');        // Phibble\Frame; needs erikwestlund/phibble
 ```
 
 The [API reference](docs/api.md#data-frames-and-the-phpstats-family) documents the conventions. None of these packages is a Composer dependency.

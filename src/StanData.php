@@ -9,7 +9,7 @@ namespace CmdStan;
  * - int and float columns become Stan arrays unchanged; booleans become 0/1; list cells (arrays) stay nested arrays.
  * - Factor columns become 1-based integer indices, in level order, and add J_<name> (the number of levels). Levels come
  *   from a toModelData() factor descriptor ['levels' => list<string>, 'codes' => list<?int>, 'ordered' => bool], whose
- *   codes are 0-based as phibble's Frame::toModelData() returns them (a 'base' => 1 entry marks 1-based codes), or
+ *   codes are 0-based as phibble's Frame::toModelData() returns them (phibble 93858fa and later) (a 'base' => 1 entry marks 1-based codes), or
  *   from the table's levels(name) when toColumns() is used and types() reports a factor. String columns are
  *   treated as factors with sorted unique levels (strcmp order, as phibble's and R's factor() defaults). The labels
  *   are kept in $levels; they are not written to the Stan JSON, which holds numbers only.
