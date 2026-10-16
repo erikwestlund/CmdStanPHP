@@ -42,7 +42,8 @@ jobs:
           ref: 5d2f7a65c243abadbb9ebba22f7987d34253412e
           path: .context/phiz
           persist-credentials: false
-      - run: composer install --no-interaction --prefer-dist --no-dev
+      # phiz has no runtime dependencies, so its autoloader is all the tests need.
+      - run: composer dump-autoload --no-dev
         working-directory: .context/phiz
       - name: Install vl-convert
         run: |
