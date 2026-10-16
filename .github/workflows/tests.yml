@@ -46,7 +46,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: erikwestlund/php-stats
-          ref: e7457cb4267dd78307ae5b2863efa9578644a33a
+          ref: 99b09d7c8fd4bcc41e2f990bcbb535e9ceae8122
           path: .context/php-stats
           persist-credentials: false
       - name: Install matching PHP headers and clang
