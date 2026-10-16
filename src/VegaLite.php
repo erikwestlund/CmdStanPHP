@@ -34,7 +34,7 @@ final class VegaLite
         return ['$schema' => Figure::VEGA_LITE_SCHEMA, 'title' => $title, 'data' => ['values' => $rows]] + $size + $spec;
     }
     /** Keeps every k-th trace iteration or scatter draw (and every divergent draw) so at most about $max_rows remain. */
-    private static function thin(Figure $figure, ?int $max_rows): array
+    public static function thin(Figure $figure, ?int $max_rows): array
     {
         $n = count($figure->data);
         if ($max_rows === null || $n <= $max_rows || !in_array($figure->kind, ['trace', 'scatter'], true)) { return $figure->data; }
@@ -69,5 +69,5 @@ final class VegaLite
         return ['field' => $field, 'type' => 'quantitative', 'title' => $title] + ($zero ? [] : ['scale' => ['zero' => false]]);
     }
     private static function chain(): array { return ['field' => 'chain', 'type' => 'nominal', 'title' => 'chain']; }
-    private static function number(float $x): string { return sprintf('%.17g', $x); }
+    public static function number(float $x): string { return sprintf('%.17g', $x); }
 }

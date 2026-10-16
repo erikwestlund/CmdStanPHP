@@ -44,6 +44,12 @@ final class Figure implements \Stringable
         if (!($scale > 0)) { throw new \InvalidArgumentException('scale must be positive.'); }
         return $this->convert('vl2png', 'png', ['--scale', Options::scalar($scale)], $width, $height, $max_rows, $timeout);
     }
+    /**
+     * The figure as a phiz plot (a Phiz\Plot), drawn from the same data rows. phiz is optional and needs PHP 8.5
+     * (composer require erikwestlund/phiz); the plot can be restyled and rendered with phiz's html(), embed(), svg(),
+     * png(), and pdf(), or shown with its Laravel <x-phiz> component.
+     */
+    public function toPhiz(int $width = 480, int $height = 240, ?int $max_rows = null): object { return PhizFigure::build($this, $width, $height, $max_rows); }
     public function __toString(): string { return $this->ascii(); }
     private function convert(string $command, string $extension, array $extra, int $width, int $height, ?int $max_rows, ?float $timeout): string
     {
