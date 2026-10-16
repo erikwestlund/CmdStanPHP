@@ -112,15 +112,37 @@ final class StanDataTest extends TestCase
     }
     public function testModelMatrixResultsBecomeRegressionData(): void
     {
-        $mm = ['y' => [1.0, 2.0, 3.0], 'x' => [[1.0, 0.5], [1.0, 1.5], [1.0, 2.5]], 'columns' => ['(Intercept)', 'x1'], 'intercept' => true, 'random' => [['group' => 'g', 'levels' => ['a', 'b'], 'index' => [0, 1, 1]]], 'rows' => [0, 2, 3], 'n_dropped' => 1];
+        $mm = ['y' => [1.0, 2.5, 3.0], 'x' => [[1.0, 0.5], [1.0, 1.5], [1.0, 2.5]], 'columns' => ['(Intercept)', 'x'], 'intercept' => true, 'terms' => ['x'], 'assign' => [0, 1], 'formula' => 'y ~ x + (1 + x | g)', 'response' => 'y', 'offset' => null,
+            'random' => [['label' => '1 + x | g', 'group' => 'g', 'columns' => ['(Intercept)', 'x'], 'correlated' => true, 'z' => [[1.0, 0.5], [1.0, 1.5], [1.0, 2.5]], 'groups' => ['b', 'a', 'b']]],
+            'n_input' => 4, 'n_observations' => 3, 'n_dropped' => 1, 'retained_rows' => [0, 1, 3], 'dropped_rows' => [2]];
         $data = StanData::fromModelMatrix($mm);
-        self::assertSame(['N' => 3, 'K' => 2, 'X' => [[1.0, 0.5], [1.0, 1.5], [1.0, 2.5]], 'y' => [1.0, 2.0, 3.0], 'g_id' => [1, 2, 2], 'J_g' => 2, 'J' => 2], $data->data);
-        self::assertSame(['(Intercept)', 'x1'], $data->columns); self::assertSame(['g_id' => ['a', 'b']], $data->levels); self::assertSame(['intercept' => true, 'rows' => [0, 2, 3], 'n_dropped' => 1], $data->meta);
-        $dropped = StanData::fromModelMatrix($mm, drop_intercept: true);
-        self::assertSame([[0.5], [1.5], [2.5]], $dropped->data['X']); self::assertSame(1, $dropped->data['K']); self::assertSame(['x1'], $dropped->columns);
-        $keyed = StanData::fromModelMatrix(['y' => [1], 'x' => [[2]], 'columns' => ['x'], 'random' => ['g' => ['indices' => [2]], 'h' => ['labels' => ['u'], 'codes' => [1]]]]);
-        self::assertSame(['N' => 1, 'K' => 1, 'X' => [[2.0]], 'y' => [1], 'g_id' => [2], 'J_g' => 2, 'h_id' => [1], 'J_h' => 1], $keyed->data);
-        $this->expectException(\UnexpectedValueException::class); StanData::fromModelMatrix(['y' => [1], 'x' => [[1]]]);
+        self::assertSame(['N' => 3, 'K' => 2, 'X' => [[1.0, 0.5], [1.0, 1.5], [1.0, 2.5]], 'y' => [1.0, 2.5, 3.0], 'g_id' => [2, 1, 2], 'J_g' => 2, 'Z_g' => [[1.0, 0.5], [1.0, 1.5], [1.0, 2.5]], 'Q_g' => 2, 'J' => 2], $data->data);
+        self::assertSame(['(Intercept)', 'x'], $data->columns); self::assertSame(['g_id' => ['a', 'b']], $data->levels);
+        self::assertSame([0, 1, 3], $data->meta['retained_rows']); self::assertSame([2], $data->meta['dropped_rows']); self::assertSame(1, $data->meta['n_dropped']);
+        self::assertSame(['group' => 'g', 'columns' => ['(Intercept)', 'x'], 'terms' => [['label' => '1 + x | g', 'columns' => ['(Intercept)', 'x'], 'correlated' => true]]], $data->meta['random']['g']);
+        $dropped = StanData::fromModelMatrix($mm, drop_intercept: true, group_levels: ['g' => ['b', 'a']]);
+        self::assertSame([[0.5], [1.5], [2.5]], $dropped->data['X']); self::assertSame(1, $dropped->data['K']); self::assertSame(['x'], $dropped->columns); self::assertSame([1, 2, 1], $dropped->data['g_id']);
+    }
+    public function testModelMatrixResponsesInterceptGroupsAndOffsets(): void
+    {
+        $base = ['x' => [[1.0], [1.0], [1.0]], 'columns' => ['(Intercept)'], 'intercept' => true, 'random' => []];
+        self::assertSame([2, 0, 7], StanData::fromModelMatrix($base + ['y' => [2.0, 0.0, 7.0]])->data['y'], 'integral responses become integers');
+        $binary = StanData::fromModelMatrix($base + ['y' => [0, 1, 1], 'response_levels' => ['no', 'yes']]);
+        self::assertSame([0, 1, 1], $binary->data['y']); self::assertArrayNotHasKey('C', $binary->data); self::assertSame(['no', 'yes'], $binary->levels['y']);
+        $categorical = StanData::fromModelMatrix($base + ['y' => [2, 0, 1], 'response_levels' => ['a', 'b', 'c']]);
+        self::assertSame([3, 1, 2], $categorical->data['y']); self::assertSame(3, $categorical->data['C']);
+        $binomial = StanData::fromModelMatrix($base + ['y' => [[3.0, 1.0], [0.0, 2.0], [5.0, 5.0]], 'offset' => [0.1, 0.2, 0.3]]);
+        self::assertSame([3, 0, 5], $binomial->data['y']); self::assertSame([4, 2, 10], $binomial->data['trials']); self::assertSame([0.1, 0.2, 0.3], $binomial->data['offset']);
+        self::assertArrayNotHasKey('y', StanData::fromModelMatrix($base + ['y' => null])->data);
+        $nested = StanData::fromModelMatrix(['y' => [1.0, 2.0, 3.0], 'random' => [
+            ['label' => '1 | g1', 'group' => 'g1', 'columns' => ['(Intercept)'], 'correlated' => true, 'z' => [[1.0], [1.0], [1.0]], 'groups' => [10, 3, 10]],
+            ['label' => '1 | g2:g1', 'group' => 'g2:g1', 'columns' => ['(Intercept)'], 'correlated' => true, 'z' => [[1.0], [1.0], [1.0]], 'groups' => ['u:10', 'u:3', 'v:10']],
+            ['label' => '0 + x | g1', 'group' => 'g1', 'columns' => ['x'], 'correlated' => true, 'z' => [[0.5], [1.5], [2.5]], 'groups' => [10, 3, 10]],
+        ]] + $base);
+        self::assertSame([2, 1, 2], $nested->data['g1_id']); self::assertSame(['3', '10'], $nested->levels['g1_id'], 'numeric labels sort numerically');
+        self::assertSame([1, 2, 3], $nested->data['g2_g1_id']); self::assertSame(3, $nested->data['J_g2_g1']); self::assertArrayNotHasKey('J', $nested->data);
+        self::assertSame([[0.5], [1.5], [2.5]], $nested->data['Z_g1']); self::assertSame(1, $nested->data['Q_g1']); self::assertArrayNotHasKey('Z_g2_g1', $nested->data);
+        $this->expectException(\UnexpectedValueException::class); StanData::fromModelMatrix(['y' => [1]]);
     }
     public function testFromFormulaRequiresStatsModelMatrix(): void
     {
@@ -129,26 +151,52 @@ final class StanDataTest extends TestCase
         StanData::fromFormula('y ~ x + (1 | g)', ['y' => [1.0], 'x' => [2.0], 'g' => ['a']]);
     }
     #[RunInSeparateProcess]
-    public function testFromFormulaPassesLabelsToStatsModelMatrix(): void
+    public function testFromFormulaPassesTablesToStatsModelMatrix(): void
     {
         if (function_exists('stats_model_matrix')) { self::markTestSkipped('The real stats_model_matrix() is loaded.'); }
-        eval('function stats_model_matrix(string $formula, array $data): array { $GLOBALS["stats_model_matrix_call"] = [$formula, $data]; return ["y" => $data["y"], "x" => array_map(fn($x) => [1.0, $x], $data["x"]), "columns" => ["(Intercept)", "x"], "intercept" => true, "random" => [["group" => "g", "levels" => ["b", "a"], "index" => [1, 2]]], "rows" => [0, 1]]; }');
-        $data = StanData::fromFormula('y ~ x + (1 | g)', self::frame(['y' => [1.0, 2.0], 'x' => [3.0, 4.0], 'g' => ['b', 'a']], ['g' => 'factor'], ['g' => ['b', 'a']]), drop_intercept: true);
-        self::assertSame(['y ~ x + (1 | g)', ['y' => [1.0, 2.0], 'x' => [3.0, 4.0], 'g' => ['b', 'a']]], $GLOBALS['stats_model_matrix_call'], 'factor columns are passed as labels');
-        self::assertSame(['N' => 2, 'K' => 1, 'X' => [[3.0], [4.0]], 'y' => [1.0, 2.0], 'g_id' => [1, 2], 'J_g' => 2, 'J' => 2], $data->data);
-        self::assertSame(['intercept' => true, 'rows' => [0, 1]], $data->meta);
-        $model = ['y' => [1.0, 2.0], 'x' => [3.0, 4.0], 'g' => ['levels' => ['b', 'a'], 'codes' => [0, 1], 'ordered' => false]];
-        StanData::fromFormula('y ~ x + (1 | g)', self::modelData($model));
+        eval('function stats_model_matrix(string $formula, mixed $data, string $missing = "drop"): array { $GLOBALS["stats_model_matrix_call"] = [$formula, $data, $missing]; $labels = isset($data["g"]["codes"]) ? array_map(fn($c) => $data["g"]["levels"][$c], $data["g"]["codes"]) : $data["g"]; return ["y" => $data["y"], "x" => array_map(fn($x) => [1.0, $x], $data["x"]), "columns" => ["(Intercept)", "x"], "intercept" => true, "random" => [["label" => "1 | g", "group" => "g", "columns" => ["(Intercept)"], "correlated" => true, "z" => [[1.0], [1.0]], "groups" => $labels]], "retained_rows" => [0, 1], "dropped_rows" => []]; }');
+        $data = StanData::fromFormula('y ~ x + (1 | g)', self::frame(['y' => [1.0, 2.5], 'x' => [3.0, 4.0], 'g' => ['b', 'a']], ['g' => 'factor'], ['g' => ['b', 'a']]), drop_intercept: true, missing: 'raise');
+        self::assertSame(['y ~ x + (1 | g)', ['y' => [1.0, 2.5], 'x' => [3.0, 4.0], 'g' => ['b', 'a']], 'raise'], $GLOBALS['stats_model_matrix_call'], 'factor columns are passed as labels');
+        self::assertSame(['N' => 2, 'K' => 1, 'X' => [[3.0], [4.0]], 'y' => [1.0, 2.5], 'g_id' => [1, 2], 'J_g' => 2, 'J' => 2], $data->data, 'the table\'s factor levels set the group order');
+        $model = ['y' => [1.0, 2.5], 'x' => [3.0, 4.0], 'g' => ['levels' => ['b', 'a'], 'codes' => [0, 1], 'ordered' => false]];
+        $data = StanData::fromFormula('y ~ x + (1 | g)', self::modelData($model));
         self::assertSame($model, $GLOBALS['stats_model_matrix_call'][1], 'toModelData() is passed unchanged');
+        self::assertSame([1, 2], $data->data['g_id'], 'descriptor levels set the group order'); self::assertSame(['b', 'a'], $data->levels['g_id']);
     }
-    public function testFromFormulaUsesStatsModelMatrix(): void
+    private static function requireModelMatrix(): void { if (!function_exists('stats_model_matrix')) { self::markTestSkipped('Needs stats_model_matrix() from the php_stats extension.'); } }
+    private const SCHOOLS = ['y' => [1.0, 2.5, 3.0, null, 5.0, 4.0], 'x' => [0.5, 1.5, 2.5, 3.0, 1.0, 2.0], 'g' => ['b', 'a', 'b', 'c', 'a', 'c'], 'f' => ['lo', 'hi', 'lo', 'hi', 'mid', 'lo'], 'r' => ['no', 'yes', 'no', 'yes', 'yes', 'no']];
+    public function testRealModelMatrixRandomIntercept(): void
     {
-        if (!function_exists('stats_model_matrix')) { self::markTestSkipped('Needs stats_model_matrix() from the php_stats extension.'); }
-        $data = StanData::fromFormula('y ~ x + (1 | g)', ['y' => [1.0, 2.0, 3.0, 4.0], 'x' => [0.5, 1.5, 2.5, 3.0], 'g' => ['a', 'b', 'a', 'b']]);
-        self::assertSame(4, $data->data['N']); self::assertSame(2, $data->data['K']); self::assertSame(['(Intercept)', 'x'], $data->columns);
-        self::assertSame([1.0, 2.0, 3.0, 4.0], array_map('floatval', $data->data['y'])); self::assertSame([1, 2, 1, 2], $data->data['g_id']); self::assertSame(2, $data->data['J']);
-        $dropped = StanData::fromFormula('y ~ x + (1 | g)', ['y' => [1.0, 2.0, 3.0, 4.0], 'x' => [0.5, 1.5, 2.5, 3.0], 'g' => ['a', 'b', 'a', 'b']], drop_intercept: true);
-        self::assertSame(['x'], $dropped->columns);
+        self::requireModelMatrix();
+        $complete = self::SCHOOLS; $complete['y'][3] = 6.0;
+        $data = StanData::fromFormula('y ~ x + (1 | g)', $complete);
+        self::assertSame(6, $data->data['N']); self::assertSame(2, $data->data['K']); self::assertSame(['(Intercept)', 'x'], $data->columns);
+        self::assertSame([[1.0, 0.5], [1.0, 1.5], [1.0, 2.5], [1.0, 3.0], [1.0, 1.0], [1.0, 2.0]], $data->data['X']);
+        self::assertSame([1.0, 2.5, 3.0, 6.0, 5.0, 4.0], $data->data['y']); self::assertSame([2, 1, 2, 3, 1, 3], $data->data['g_id']); self::assertSame(3, $data->data['J']);
+        self::assertArrayNotHasKey('Z_g', $data->data); self::assertSame([], $data->meta['dropped_rows']);
+        $descriptor = $complete; $descriptor['g'] = ['levels' => ['c', 'b', 'a'], 'codes' => [1, 2, 1, 0, 2, 0], 'ordered' => false];
+        self::assertSame([2, 3, 2, 1, 3, 1], StanData::fromFormula('y ~ x + (1 | g)', $descriptor)->data['g_id']);
+    }
+    public function testRealModelMatrixRandomSlopesFactorsAndMissingRows(): void
+    {
+        self::requireModelMatrix();
+        $warnings = []; set_error_handler(function (int $no, string $message) use (&$warnings) { $warnings[] = $message; return true; }, E_WARNING);
+        try { $data = StanData::fromFormula('y ~ x + f + (1 + x | g)', self::SCHOOLS, drop_intercept: true); } finally { restore_error_handler(); }
+        self::assertCount(1, $warnings, 'stats_model_matrix() warns once about dropped rows');
+        self::assertSame(5, $data->data['N']); self::assertSame(['x', 'flo', 'fmid'], $data->columns); self::assertSame(3, $data->data['K']);
+        self::assertSame([[0.5, 1.0, 0.0], [1.5, 0.0, 0.0], [2.5, 1.0, 0.0], [1.0, 0.0, 1.0], [2.0, 1.0, 0.0]], $data->data['X']);
+        self::assertSame([2, 1, 2, 1, 3], $data->data['g_id']); self::assertSame(['a', 'b', 'c'], $data->levels['g_id']);
+        self::assertSame([[1.0, 0.5], [1.0, 1.5], [1.0, 2.5], [1.0, 1.0], [1.0, 2.0]], $data->data['Z_g']); self::assertSame(2, $data->data['Q_g']);
+        self::assertSame([0, 1, 2, 4, 5], $data->meta['retained_rows']); self::assertSame([3], $data->meta['dropped_rows']);
+        $this->expectException(\Exception::class); StanData::fromFormula('y ~ x', self::SCHOOLS, missing: 'raise');
+    }
+    public function testRealModelMatrixFactorResponse(): void
+    {
+        self::requireModelMatrix();
+        $data = StanData::fromFormula('r ~ x', self::SCHOOLS);
+        self::assertSame([0, 1, 0, 1, 1, 0], $data->data['y']); self::assertSame(['no', 'yes'], $data->levels['y']); self::assertSame(6, $data->data['N']);
+        $three = StanData::fromFormula('f ~ x', self::SCHOOLS);
+        self::assertSame(['hi', 'lo', 'mid'], $three->levels['y']); self::assertSame([2, 1, 2, 1, 3, 2], $three->data['y']); self::assertSame(3, $three->data['C']);
     }
 }
 enum FactorType: string { case Factor = 'factor'; case Float = 'float'; }

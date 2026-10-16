@@ -171,7 +171,32 @@ data {
 }
 ```
 
-`StanData::fromFormula('y ~ x1 + x2 + (1 | g)', $data, drop_intercept: false)` builds the same variables from an R-style formula through `stats_model_matrix()` in the [`php_stats`](https://github.com/erikwestlund/php-stats) extension. Factor predictors, interactions, and other terms follow that function. A table's `toModelData()` is passed to it unchanged. Without the function, `fromFormula()` throws a `RuntimeException` that names the requirement. The function is new, so CmdStanPHP adapts its documented result (`y`, `x` rows, `columns`, `intercept`, and `random` terms with group labels and indices) in one place, `StanData::fromModelMatrix()`. Random-effect terms become `<g>_id`, `J_<g>`, and `J` as above. Other keys, such as the rows kept after dropping missing values, are kept in `meta`. Random slopes are not yet mapped. `drop_intercept: true` removes the `(Intercept)` column for programs with a separate intercept parameter.
+`StanData::fromFormula('y ~ x1 + f + (1 + x1 | g)', $data, drop_intercept: false, missing: 'drop')` builds regression data from an R-style formula through `stats_model_matrix()` in the [`php_stats`](https://github.com/erikwestlund/php-stats) extension (php-stats `741d38f` and later). The function handles factor predictors (treatment contrasts), interactions, transforms, and offsets, and keeps the `(Intercept)` column in `X` unless `drop_intercept: true`. `$data` can be columns, factor descriptors, or a table, whose `toModelData()` is passed unchanged. Without the function, `fromFormula()` throws a `RuntimeException` that names the requirement. `StanData::fromModelMatrix($result)` maps an existing `stats_model_matrix()` result and is the only code that depends on its shape.
+
+| Formula part | Stan data |
+| --- | --- |
+| Design matrix | `N` (retained rows), `K`, and `X`; the column names are in `columns` |
+| Numeric response | `y`, as integers when every value is integral, so it suits `int` and `real` declarations |
+| Factor response | `y` as 0/1 for two levels (Bernoulli), or 1..`C` with `C` levels (categorical); labels in `levels['y']` |
+| `cbind(s, f)` response | `y` (successes) and `trials` (successes plus failures) |
+| `offset()` | `offset` |
+| `(... \| g)` | `<g>_id` (1-based) and `J_<g>` per grouping factor, and `J` when there is one grouping factor |
+| Random slopes, such as `(1 + x \| g)` | `Z_<g>` (N rows of the term's columns, including the intercept column) and `Q_<g>`, the number of columns; omitted for intercept-only terms |
+
+Group names that are not Stan identifiers have other characters replaced by `_`, so the nested group `g2:g1` gives `g2_g1_id`. Groups are numbered in factor level order when the data has descriptors or table factors, and otherwise over sorted labels (numbers numerically, otherwise byte order, as `stats_model_matrix()` sorts levels). Terms on the same group are concatenated into one `Z_<g>`. `missing: 'drop'` removes rows with missing values in any variable the formula uses, with one `E_WARNING` from `stats_model_matrix()`, and `missing: 'raise'` rejects them. The remaining result keys, including `retained_rows`, `dropped_rows`, `n_input`, `n_dropped`, `terms`, and `assign`, are kept in `meta`, and `meta['random'][<g>]` lists each group's columns and terms.
+
+```stan
+data {
+  int<lower=0> N;
+  int<lower=1> K;
+  matrix[N, K] X;          // includes the intercept column
+  vector[N] y;
+  int<lower=1> J;
+  array[N] int<lower=1, upper=J> g_id;
+  int<lower=1> Q_g;
+  matrix[N, Q_g] Z_g;      // (1 + x1 | g)
+}
+```
 
 ### Draws and summaries out
 

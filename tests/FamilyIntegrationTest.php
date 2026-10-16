@@ -46,6 +46,44 @@ STAN;
         self::assertEqualsWithDelta(2.0, array_sum($columns['beta[1]']) / 600, 0.25);
         $summary = $fit->summary_columns('beta'); self::assertSame(['beta[1]'], $summary['variable']); self::assertLessThan(1.05, $summary['rhat'][0]);
     }
+    private const FORMULA_PROGRAM = <<<'STAN'
+data {
+  int<lower=0> N;
+  int<lower=1> K;
+  matrix[N, K] X;
+  vector[N] y;
+  int<lower=1> J;
+  array[N] int<lower=1, upper=J> school_id;
+}
+parameters {
+  vector[K] beta;
+  vector[J] z;
+  real<lower=0> tau;
+  real<lower=0> sigma;
+}
+model {
+  beta ~ normal(0, 100); z ~ std_normal(); tau ~ student_t(3, 0, 10); sigma ~ student_t(3, 0, 10);
+  y ~ normal(X * beta + tau * z[school_id], sigma);
+}
+STAN;
+    /** score ~ study_hours + (1 | school) on php-stats' schools data, compared with stats_lmer()'s REML estimates. */
+    public function testFormulaHierarchicalFitAgreesWithStatsLmer(): void
+    {
+        if (!function_exists('stats_model_matrix') || !function_exists('stats_lmer')) { self::markTestSkipped('Needs stats_model_matrix() and stats_lmer() from the php_stats extension.'); }
+        $handle = fopen(__DIR__.'/fixtures/schools.csv', 'rb'); $header = fgetcsv($handle, escape: ''); $columns = [];
+        while (($row = fgetcsv($handle, escape: '')) !== false) { foreach ($header as $i => $name) { $columns[$name][] = $name === 'school' ? $row[$i] : (float)$row[$i]; } }
+        fclose($handle);
+        $formula = 'score ~ study_hours + (1 | school)';
+        $data = StanData::fromFormula($formula, $columns);
+        self::assertSame(250, $data->data['N']); self::assertSame(12, $data->data['J']); self::assertSame(['(Intercept)', 'study_hours'], $data->columns);
+        $lmer = \stats_lmer($formula, $columns);
+        $fit = $this->model(self::FORMULA_PROGRAM, 'family_formula')->sample(data: $data, chains: 4, parallel_chains: 4, iter_warmup: 1000, iter_sampling: 1000, seed: 2024, adapt_delta: 0.95, show_messages: false, refresh: 0, output_dir: $this->dir, diagnostics: null);
+        $summary = array_column($fit->summary(['beta', 'tau', 'sigma']), null, 'variable');
+        foreach ($summary as $row) { self::assertLessThan(1.01, $row['rhat'], $row['variable']); }
+        foreach ([0, 1] as $k) { self::assertEqualsWithDelta($lmer['coefficients'][$k], $summary['beta['.($k + 1).']']['mean'], 0.5 * $lmer['std_errors'][$k], 'beta['.($k + 1).']'); }
+        self::assertEqualsWithDelta($lmer['sigma'], $summary['sigma']['mean'], 0.05 * $lmer['sigma']);
+        $tau = sqrt($lmer['random'][0]['covariance'][0][0]); self::assertEqualsWithDelta($tau, $summary['tau']['mean'], 0.35 * $tau);
+    }
     public function testTableDataRunsBernoulli(): void
     {
         $table = new class { public function toColumns(): array { return ['y' => [0, 1, 0, 0, 0, 0, 0, 0, 0, 1]]; } };

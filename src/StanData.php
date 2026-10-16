@@ -17,7 +17,8 @@ namespace CmdStan;
  * - Missing values (null), dates, and other objects are rejected, since Stan has no missing values.
  *
  * fromColumns() and fromFormula() build the usual regression data block: N, K, X (N x K rows), y, and per grouping
- * factor g the indices g_id (1..J_g) and J_g, plus J when there is exactly one grouping factor.
+ * factor g the indices g_id (1..J_g) and J_g, plus J when there is exactly one grouping factor. fromFormula() also
+ * maps random slopes (Z_g, Q_g), factor and cbind() responses, and offsets; see fromModelMatrix().
  */
 final class StanData
 {
@@ -89,46 +90,102 @@ final class StanData
         return self::assemble($n, $rows, $intercept ? ['(Intercept)', ...$names] : $names, array_map(fn($value, $row) => self::cell($value, $y, $row, true), $yValues['values'], array_keys($yValues['values'])), $groupData);
     }
     /**
-     * Regression data from an R-style formula, e.g. 'y ~ x1 + x2 + (1 | g)', using stats_model_matrix() from the
-     * php_stats extension: N, K, X, y, and the group indices of the random-effect terms, as fromColumns() names them.
-     * $drop_intercept removes the model matrix's '(Intercept)' column for programs with a separate intercept parameter.
+     * Regression data from an R-style formula, e.g. 'y ~ x1 + f + (1 + x1 | g)', using stats_model_matrix() from the
+     * php_stats extension. The result has N, K, X, and y as fromColumns() names them, plus, for each grouping factor g
+     * of the random-effect terms, g_id and J_g (and J for a single grouping factor), and Z_g and Q_g when the terms
+     * on g have columns other than the intercept. See fromModelMatrix() for the mapping. $missing is passed to
+     * stats_model_matrix(): 'drop' removes incomplete rows with one E_WARNING, and 'raise' rejects them.
+     * $drop_intercept removes the '(Intercept)' column of X for programs with a separate intercept parameter.
      *
-     * @param array<string, list<mixed>>|object $data columns, or a table: its toModelData() is passed unchanged (the
-     *     input stats_model_matrix() expects); a table with only toColumns() is passed with factor labels
+     * @param array<string, mixed>|object $data columns, factor descriptors, or a table: its toModelData() is passed
+     *     unchanged; a table with only toColumns() is passed with factor labels. Factor levels from descriptors or the
+     *     table set the order of group indices.
      */
-    public static function fromFormula(string $formula, array|object $data, bool $drop_intercept = false): self
+    public static function fromFormula(string $formula, array|object $data, bool $drop_intercept = false, string $missing = 'drop'): self
     {
         if (!function_exists('stats_model_matrix')) { throw new \RuntimeException('StanData::fromFormula() needs stats_model_matrix() from the php_stats extension (https://github.com/erikwestlund/php-stats), which is not loaded or predates the function. Use StanData::fromColumns() without it.'); }
-        if (is_object($data)) { $data = method_exists($data, 'toModelData') ? $data->toModelData() : array_map(fn($column) => $column['levels'] === null ? $column['values'] : array_map(fn($i) => $column['levels'][$i - 1], $column['values']), self::tableColumns($data)); }
-        return self::fromModelMatrix(\stats_model_matrix($formula, $data), $drop_intercept);
+        $levels = [];
+        if (is_object($data) && !method_exists($data, 'toModelData')) {
+            $columns = self::tableColumns($data); $data = [];
+            foreach ($columns as $name => $column) {
+                if ($column['levels'] === null) { $data[$name] = $column['values']; continue; }
+                $data[$name] = array_map(fn($i) => $column['levels'][$i - 1], $column['values']); $levels[$name] = $column['levels'];
+            }
+        } elseif (is_object($data)) { $data = $data->toModelData(); }
+        foreach ($data as $name => $column) { if (is_array($column) && isset($column['levels'], $column['codes'])) { $levels[(string)$name] = array_values(array_map('strval', $column['levels'])); } }
+        return self::fromModelMatrix(\stats_model_matrix($formula, $data, $missing), $drop_intercept, $levels);
     }
     /**
-     * Adapts a stats_model_matrix() result: ['y' => list<float>, 'x' => rows, 'columns' => names, 'intercept' => bool,
-     * 'random' => list of ['group' => name, 'levels' => labels, 'index' => per-row group indices], plus row bookkeeping
-     * such as 'rows' (kept in $meta). Indices may be 0- or 1-based; they become 1-based. This is the only code that
-     * depends on the function's result shape.
+     * Maps a stats_model_matrix() result to Stan data. This is the only code that depends on the result's shape.
+     *
+     * - x and columns become X and K; N is the number of retained rows.
+     * - A numeric response becomes y, as integers when every value is integral (so it suits int and real data). A
+     *   factor response (0-based codes plus response_levels) gives y as 0/1 for two levels (Bernoulli) and 1..C with C,
+     *   the number of levels, for more (categorical); the labels are in $levels['y']. A cbind(successes, failures)
+     *   response gives y (successes) and trials. Without a response there is no y.
+     * - offset becomes offset when present.
+     * - Each random-effect term's per-row group labels become g_id (1-based) and J_g, where g is the group name with
+     *   characters other than letters, digits, and underscores replaced by '_' (so g2:g1 becomes g2_g1). Groups are
+     *   numbered in $group_levels[g] order when given (fromFormula() passes factor levels), else over sorted labels
+     *   (numbers numerically, otherwise byte order). Terms with columns other than '(Intercept)' add Z_g (N x Q_g rows,
+     *   the term's z) and Q_g; terms sharing a group are concatenated. J is added for a single grouping factor.
+     * - Every other key (retained_rows, dropped_rows, n_input, n_dropped, terms, assign, ...) is kept in $meta, and
+     *   $meta['random'][g] holds each group's label, columns, and correlated flag.
+     *
+     * @param array<string, list<string>> $group_levels level order by group name
      */
-    public static function fromModelMatrix(array $mm, bool $drop_intercept = false): self
+    public static function fromModelMatrix(array $mm, bool $drop_intercept = false, array $group_levels = []): self
     {
-        foreach (['y', 'x', 'columns'] as $key) { if (!array_key_exists($key, $mm)) { throw new \UnexpectedValueException("stats_model_matrix() result lacks '".$key."'."); } }
+        foreach (['x', 'columns'] as $key) { if (!array_key_exists($key, $mm)) { throw new \UnexpectedValueException("stats_model_matrix() result lacks '".$key."'."); } }
         $columns = array_values(array_map('strval', $mm['columns'])); $rows = array_map(fn($row) => array_map('floatval', array_values($row)), array_values($mm['x']));
-        $drop = $drop_intercept && ($mm['intercept'] ?? in_array('(Intercept)', $columns, true)) ? array_search('(Intercept)', $columns, true) : false;
+        $drop = $drop_intercept ? array_search('(Intercept)', $columns, true) : false;
         if ($drop !== false) { unset($columns[$drop]); $columns = array_values($columns); $rows = array_map(function ($row) use ($drop) { unset($row[$drop]); return array_values($row); }, $rows); }
-        $groups = [];
-        foreach ($mm['random'] ?? [] as $key => $term) {
-            $name = (string)($term['group'] ?? $term['name'] ?? (is_string($key) ? $key : throw new \UnexpectedValueException('A random-effect term has no group name.')));
-            $index = array_values($term['index'] ?? $term['indices'] ?? $term['codes'] ?? throw new \UnexpectedValueException("Random-effect term '".$name."' has no group indices."));
-            $levels = array_values(array_map('strval', $term['levels'] ?? $term['labels'] ?? []));
-            $base = $index !== [] && (int)min($index) === 0 ? 1 : 0; $index = array_map(fn($i) => (int)$i + $base, $index);
-            if ($levels === []) { $levels = $index === [] ? [] : array_map('strval', range(1, max($index))); }
-            if ($index !== [] && (min($index) < 1 || max($index) > count($levels))) { throw new \UnexpectedValueException("Random-effect term '".$name."' has indices outside its levels."); }
-            $groups[$name] = ['index' => $index, 'levels' => $levels];
+        $n = count($rows); $data = ['N' => $n, 'K' => count($columns), 'X' => $rows]; $levels = [];
+        $y = $mm['y'] ?? null;
+        if ($y !== null) {
+            $y = array_values($y);
+            if (count($y) !== $n) { throw new \UnexpectedValueException('stats_model_matrix() returned a response of the wrong length.'); }
+            if (isset($mm['response_levels'])) {
+                $labels = array_values(array_map('strval', $mm['response_levels'])); $binary = count($labels) <= 2;
+                $data['y'] = array_map(fn($code) => (int)$code + ($binary ? 0 : 1), $y); $levels['y'] = $labels;
+                if (!$binary) { $data['C'] = count($labels); }
+            } elseif ($y !== [] && is_array($y[0])) {
+                $data['y'] = array_map(fn($pair) => self::integral((float)$pair[0]), $y); $data['trials'] = array_map(fn($pair) => self::integral((float)$pair[0] + (float)$pair[1]), $y);
+            } else {
+                $integral = array_filter($y, fn($v) => (float)$v != floor((float)$v) || abs((float)$v) > PHP_INT_MAX / 2) === [];
+                $data['y'] = array_map(fn($v) => $integral ? (int)$v : (float)$v, $y);
+            }
         }
-        $y = array_values($mm['y']);
-        $meta = array_diff_key($mm, array_flip(['y', 'x', 'columns', 'random']));
-        $data = self::assemble(count($y), $rows, $columns, $y, $groups);
-        return new self($data->data, $data->levels, $data->columns, $meta);
+        if (($mm['offset'] ?? null) !== null) { $data['offset'] = array_map('floatval', array_values($mm['offset'])); }
+        $groups = []; $random = [];
+        foreach ($mm['random'] ?? [] as $term) {
+            $group = (string)($term['group'] ?? throw new \UnexpectedValueException('A random-effect term has no group.'));
+            $g = preg_replace('/[^A-Za-z0-9_]/', '_', $group);
+            if (!preg_match('/^[A-Za-z]/', $g)) { throw new \InvalidArgumentException("Group '".$group."' does not start with a letter, so it cannot name Stan variables."); }
+            $labels = array_values($term['groups'] ?? throw new \UnexpectedValueException("Random-effect term '".$group."' has no group labels."));
+            if (count($labels) !== $n) { throw new \UnexpectedValueException("Random-effect term '".$group."' has the wrong number of rows."); }
+            $termColumns = array_values(array_map('strval', $term['columns'] ?? ['(Intercept)']));
+            $groups[$g] ??= ['group' => $group, 'labels' => $labels, 'z' => array_fill(0, $n, []), 'columns' => [], 'terms' => []];
+            $groups[$g]['terms'][] = ['label' => $term['label'] ?? null, 'columns' => $termColumns, 'correlated' => $term['correlated'] ?? true];
+            if ($termColumns !== ['(Intercept)']) {
+                $z = array_values($term['z'] ?? throw new \UnexpectedValueException("Random-effect term '".$group."' has no z."));
+                foreach ($z as $i => $zrow) { $groups[$g]['z'][$i] = array_merge($groups[$g]['z'][$i], array_map('floatval', array_values($zrow))); }
+                array_push($groups[$g]['columns'], ...$termColumns);
+            }
+        }
+        foreach ($groups as $g => $group) {
+            $order = $group_levels[$group['group']] ?? null;
+            if ($order === null) { $factor = self::factor($group['labels'], $group['group']); $index = $factor['index']; $order = $factor['levels']; }
+            else { $positions = array_flip($order); $index = array_map(fn($label) => ($positions[(string)$label] ?? throw new \UnexpectedValueException("Group '".$group['group']."' has an unknown level.")) + 1, $group['labels']); }
+            $data[$g.'_id'] = $index; $data['J_'.$g] = count($order); $levels[$g.'_id'] = $order;
+            if ($group['columns'] !== []) { $data['Z_'.$g] = $group['z']; $data['Q_'.$g] = count($group['columns']); }
+            $random[$g] = ['group' => $group['group'], 'columns' => $group['columns'], 'terms' => $group['terms']];
+        }
+        if (count($groups) === 1) { $data['J'] = $data['J_'.array_key_first($groups)]; }
+        $meta = array_diff_key($mm, array_flip(['y', 'x', 'columns', 'random', 'response_levels', 'offset'])) + ($random === [] ? [] : ['random' => $random]);
+        return new self($data, $levels, $columns, $meta);
     }
+    private static function integral(float $v): int|float { return $v == floor($v) && abs($v) < PHP_INT_MAX / 2 ? (int)$v : $v; }
     private static function assemble(int $n, array $rows, array $columns, array $y, array $groups): self
     {
         if (count($rows) !== $n) { throw new \InvalidArgumentException('The design matrix needs one row per outcome.'); }
