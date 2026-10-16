@@ -41,7 +41,7 @@ This package ports CmdStanR's core model/executable/CSV workflow to PHP. It does
 
 ## PHP adaptations
 
-R named lists become associative PHP arrays; numeric arrays must be rectangular zero-indexed lists. R factors, data frames, sparse matrices, complex numbers, NA, and automatic R object conversion have no PHP equivalent. `code()` returns one source string. Syntax errors throw exceptions rather than returning an R diagnostic list.
+R named lists become associative PHP arrays; numeric arrays must be rectangular zero-indexed lists. R sparse matrices, complex numbers, NA, and automatic R object conversion have no PHP equivalent. Data frames and factors can come from phibble or any object with `toModelData()` or `toColumns()`, following the conventions in the [API reference]({{ '/api/#data-frames-and-the-phpstats-family' | relative_url }}). `code()` returns one source string. Syntax errors throw exceptions rather than returning an R diagnostic list.
 
 R posterior objects become PHP arrays with documented shapes. All array indices are zero-based; draw metadata is one-based. `draws_array` retains iteration/chain axes, `draws_matrix` concatenates chains, `draws_df` is associative rows, `draws_list` maps variables to values per chain, and `draws_rvars` nests each variable's draws by its dimensions. R tibble, posterior, bayesplot, and ggplot2 classes are not emulated. The default draws format follows CmdStanR: `draws_array` for MCMC and generated quantities and `draws_matrix` for other methods.
 

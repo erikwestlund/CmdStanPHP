@@ -18,7 +18,7 @@ All classes and functions are in the `CmdStan` namespace. Function and method na
 | `rebuild_cmdstan(cores: null, timeout: null)` | Clean and rebuild selected CmdStan |
 | `options(set: [])` / `cmdstan_option(name, default: null)` | Set global options, returning previous values, or read one option |
 | `write_stan_file(code, file: null, dir: null, basename: null, force_overwrite: false, hash_salt: '')` | Write Stan source to `model_<hash>.stan`, reusing identical files |
-| `write_stan_json(data, file)` | Write numeric data/initialization/metric JSON |
+| `write_stan_json(data, file)` | Write numeric data/initialization/metric JSON; `data` may also be a `StanData` or a table |
 | `read_cmdstan_csv(files)` / `as_cmdstan_fit(files)` | Import one or more CmdStan CSV files into a typed fit |
 | `read_cmdstan_csv_list(files, variables: null, sampler_diagnostics: null, format: null)` | Return CmdStanR's `read_cmdstan_csv()` list shape |
 | `draws_to_csv(chains, dir)` | Export `[chain][iteration][variable]` associative draw rows to separate CSV files |
@@ -91,6 +91,7 @@ Thread options are aliases, with precedence `threads_per_chain`, `threads`, then
 - `save_output_files()`, `save_latent_dynamics_files()`, `save_profile_files()`, `save_data_file()`, `save_config_files()`, `save_metric_files()`: each takes `dir: '.', basename: null, timestamp: true, random: true` and names files `basename-YYYYmmddHHMM-id-xxxxxx.ext` as CmdStanR does. Files created by the run are moved; imported and user-supplied files are copied. Existing destinations are never overwritten.
 - `save_object(file)`: serialize parsed fit data (and native MCMC summary statistics) to a PHP object file.
 - `print(variables: null, max_rows: null)`: emit summary JSON to stdout, limited to `cmdstanr_max_rows` (default 10) variables.
+- `drawsColumns()`, `summaryColumns()`, `toFrame()`, `summaryFrame()`: column-oriented draws and summaries for data frames; see [data frames](#data-frames-and-the-phpstats-family).
 
 ### Model methods
 
@@ -116,6 +117,81 @@ These methods need PHP FFI. The first call compiles a shared library for the fit
 ### Statistics helpers
 
 `CmdStan\Figure` renders computed figures with `ascii()`, `vegaLite()`, `json()`, `html()`, `svg()`, and `png()`; casting a figure to a string gives its ASCII form. `CmdStan\Plot` computes the figures, plus `bandwidth()`, `density()`, `autocorrelation()`, and `ranks()` for the values they draw. `CmdStan\Psis` (`pareto_smooth()`, `pareto_khat()`, `psis()`, `gpdfit()`), `CmdStan\Loo` (`loo()`, `waic()`, `relative_eff()`), `CmdStan\MomentMatch` (`loo()` on unconstrained draws with log-density and log-likelihood callbacks, `fromFit()`), `CmdStan\DrawKernels` (detection of and wrappers for the `php_stats` draw kernels), `CmdStan\Summary` (`summarise()` and each posterior measure), `CmdStan\Rvars`, and `CmdStan\Inits` (`fromFit()`, `fromDraws()`, `nest()`, `validate()`) operate on plain draws arrays. Their docblocks describe the input and output shapes.
+
+## Data frames and the phpstats family
+
+CmdStanPHP works with the [phpstats family](#part-of-the-phpstats-family) without depending on it. phibble is detected by method and class names. The `php_stats` extension is detected by function name.
+
+### Data in
+
+Every `data` argument (`sample()`, `sample_mpi()`, `optimize()`, `variational()`, `pathfinder()`, `laplace()`, `generate_quantities()`, `diagnose()`, and `log_prob()`) and `write_stan_json()` accept a plain array, a JSON file, a `CmdStan\StanData`, or a table. A table is any object with `toModelData()` or `toColumns()`, such as a [phibble](https://github.com/erikwestlund/phibble) `Phibble\Frame`. `toModelData()` is used when both exist. `StanData::fromTable($table, add_n: true)` performs the same conversion and keeps the factor labels.
+
+| Column | Stan data |
+| --- | --- |
+| int or float | The list of values, unchanged |
+| bool | 0/1 integers |
+| list cells | Nested arrays, which must be rectangular |
+| factor | 1-based integer indices in level order, plus `J_<name>`, the number of levels |
+| string | A factor with sorted unique levels (`strcmp` order, as phibble's and R's `factor()` defaults) |
+| null, dates, other objects | Rejected with the column name and row, because Stan data has no missing values |
+
+Factor levels come from a `toModelData()` descriptor (`['levels' => list<string>, 'codes' => list<?int>, 'ordered' => bool]`, with phibble's 0-based codes; add `'base' => 1` for 1-based codes) or, for a `toColumns()` table, from `levels($name)` when `types()` reports a factor. The `ordered` flag is ignored. Labels cannot be written to Stan JSON, so they are returned in `StanData::$levels`, keyed by data variable, where label `i` has index `i + 1`. The conversion adds `N`, the row count, unless the table has a column named `N`, and adds `J_<name>` unless a column already has that name. CmdStan ignores data variables that the program does not declare. Column names must be valid Stan identifiers.
+
+`StanData` is a value object with readonly `data`, `levels`, `columns` (the names of the columns of `X`), and `meta`. `toArray()` returns `data`, and `with(['prior_scale' => 2.5])` adds or replaces variables.
+
+### Regression data
+
+`StanData::fromColumns($columns, y: 'y', x: ['x1', 'x2'], groups: 'school', intercept: false)` builds the usual hierarchical regression data block from named columns or a table:
+
+| Variable | Contents |
+| --- | --- |
+| `N` | Number of rows |
+| `K` | Number of predictors (columns of `X`) |
+| `X` | N rows of K floats, in the order of `x` |
+| `y` | The outcome, keeping integers as integers |
+| `<g>_id` | For each grouping column `g`, the 1-based group index of each row |
+| `J_<g>` | For each grouping column, the number of groups |
+| `J` | The number of groups, when there is exactly one grouping column |
+
+Groups are numbered over sorted unique values (numbers numerically, otherwise in `strcmp` order) or over a factor's levels, and the labels are in `levels['<g>_id']`. Predictors must be numeric. `intercept: true` prepends a column of ones named `(Intercept)`. It is off by default because Stan programs usually give the intercept its own parameter.
+
+```php
+$data = CmdStan\StanData::fromColumns($frame, 'score', ['hours'], 'school');
+$fit = $model->sample(data: $data, seed: 1);
+```
+
+```stan
+data {
+  int<lower=0> N;
+  int<lower=0> K;
+  matrix[N, K] X;
+  vector[N] y;
+  int<lower=1> J;
+  array[N] int<lower=1, upper=J> school_id;
+}
+```
+
+`StanData::fromFormula('y ~ x1 + x2 + (1 | g)', $data, drop_intercept: false)` builds the same variables from an R-style formula through `stats_model_matrix()` in the [`php_stats`](https://github.com/erikwestlund/php-stats) extension. Factor predictors, interactions, and other terms follow that function. A table's `toModelData()` is passed to it unchanged. Without the function, `fromFormula()` throws a `RuntimeException` that names the requirement. The function is new, so CmdStanPHP adapts its documented result (`y`, `x` rows, `columns`, `intercept`, and `random` terms with group labels and indices) in one place, `StanData::fromModelMatrix()`. Random-effect terms become `<g>_id`, `J_<g>`, and `J` as above. Other keys, such as the rows kept after dropping missing values, are kept in `meta`. Random slopes are not yet mapped. `drop_intercept: true` removes the `(Intercept)` column for programs with a separate intercept parameter.
+
+### Draws and summaries out
+
+- `drawsColumns(variables: null, inc_warmup: false)` returns draws as columns, like posterior's `as_draws_df()`: one list per variable element (such as `beta[2]`), then one-based `.chain`, `.iteration`, and `.draw` columns.
+- `summaryColumns(variables: null, probs: [0.05, 0.95], measures: [])` returns `summary()` as columns: `variable` and one column per measure.
+- `toFrame()` and `summaryFrame()` take the same arguments and return a `Phibble\Frame` built with `Frame::fromColumns()`. They need `erikwestlund/phibble`, which requires PHP 8.5, and throw a `RuntimeException` explaining this when it is not installed.
+- `CmdStan\Tables::fromRows($rows)` converts any list of associative rows, such as `loo()['pointwise']`, to columns.
+
+The column arrays need no other package and suit any data frame library that accepts name-to-values columns.
+
+### Part of the phpstats family
+
+CmdStanPHP is part of the phpstats family of PHP statistics packages:
+
+- [php-stats](https://github.com/erikwestlund/php-stats): the `php_stats` native extension (`stats_*` functions), which provides the moment-matching draw kernels and, when available, `stats_model_matrix()`.
+- [phibble](https://github.com/erikwestlund/phibble): data frames (`Phibble\Frame`).
+- [phplyr](https://github.com/erikwestlund/phplyr): dplyr-style verbs for phibble tables.
+- [phiz](https://github.com/erikwestlund/phiz): a Vega-Lite grammar of graphics.
+
+The family packages target PHP 8.5. CmdStanPHP keeps PHP 8.2 support and requires none of them.
 
 ## Errors
 
