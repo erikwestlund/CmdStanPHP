@@ -11,7 +11,6 @@ final class VegaLite
     public static function spec(Figure $figure, int $width = 480, int $height = 240, ?int $max_rows = null): array
     {
         if ($width < 50 || $height < 30) { throw new \InvalidArgumentException('Vega-Lite figures need width >= 50 and height >= 30 pixels.'); }
-        if ($max_rows !== null && $max_rows < 1) { throw new \InvalidArgumentException('max_rows must be positive.'); }
         $rows = self::thin($figure, $max_rows); $m = $figure->meta;
         $spec = match ($figure->kind) {
             'trace' => ['mark' => ['type' => 'line', 'strokeWidth' => 0.8, 'opacity' => 0.8], 'encoding' => ['x' => self::q('iteration', 'iteration'), 'y' => self::q('value', $m['variable'], false), 'color' => self::chain()]],
@@ -33,9 +32,14 @@ final class VegaLite
         $title = $divergent === null ? $figure->title : ['text' => $figure->title, 'subtitle' => 'red: '.$divergent.' divergent transition'.($divergent === 1 ? '' : 's')];
         return ['$schema' => Figure::VEGA_LITE_SCHEMA, 'title' => $title, 'data' => ['values' => $rows]] + $size + $spec;
     }
-    /** Keeps every k-th trace iteration or scatter draw (and every divergent draw) so at most about $max_rows remain. */
+    /**
+     * Keeps every k-th trace iteration or scatter draw (and every divergent draw) so at most about $max_rows remain.
+     *
+     * @internal Shared by spec() and PhizFigure::build(); not part of the public API.
+     */
     public static function thin(Figure $figure, ?int $max_rows): array
     {
+        if ($max_rows !== null && $max_rows < 1) { throw new \InvalidArgumentException('max_rows must be positive.'); }
         $n = count($figure->data);
         if ($max_rows === null || $n <= $max_rows || !in_array($figure->kind, ['trace', 'scatter'], true)) { return $figure->data; }
         $step = (int)ceil($n / $max_rows);
@@ -69,5 +73,6 @@ final class VegaLite
         return ['field' => $field, 'type' => 'quantitative', 'title' => $title] + ($zero ? [] : ['scale' => ['zero' => false]]);
     }
     private static function chain(): array { return ['field' => 'chain', 'type' => 'nominal', 'title' => 'chain']; }
+    /** @internal Exact number formatting for Vega expressions, shared with PhizFigure; not part of the public API. */
     public static function number(float $x): string { return sprintf('%.17g', $x); }
 }

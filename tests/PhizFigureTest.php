@@ -61,7 +61,16 @@ final class PhizFigureTest extends TestCase
         if (!self::phiz()) { self::markTestSkipped('phiz is not available.'); }
         $trace = mcmc_trace(self::draws(), 'mu');
         self::assertSame($trace->vegaLite(max_rows: 100)['data']['values'], $trace->toPhiz(max_rows: 100)->data->rows);
-        $this->expectException(\InvalidArgumentException::class); $trace->toPhiz(10, 10);
+        try { $trace->toPhiz(10, 10); self::fail('toPhiz() should reject tiny sizes.'); } catch (\InvalidArgumentException $e) { self::assertStringContainsString('width >= 50', $e->getMessage()); }
+        foreach ([0, -5] as $max_rows) {
+            foreach ([$trace, mcmc_scatter(self::draws(), 'mu', 'sigma')] as $figure) {
+                try { $figure->toPhiz(max_rows: $max_rows); self::fail('toPhiz() should reject max_rows '.$max_rows.'.'); } catch (\InvalidArgumentException $e) { self::assertSame('max_rows must be positive.', $e->getMessage()); }
+            }
+        }
+    }
+    public function testVegaLiteStillRejectsNonPositiveMaxRows(): void
+    {
+        $this->expectExceptionMessage('max_rows must be positive.'); mcmc_trace(self::draws(), 'mu')->vegaLite(max_rows: 0);
     }
     #[RunInSeparateProcess]
     public function testEveryKindRendersToSvgWithPhiz(): void

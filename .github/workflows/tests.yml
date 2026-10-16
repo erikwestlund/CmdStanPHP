@@ -24,6 +24,36 @@ jobs:
       - run: composer validate --strict
       - run: composer lint
       - run: composer test
+  phiz:
+    # Figure::toPhiz() against a pinned phiz release; phiz needs PHP 8.5, so this runs apart from the 8.2-8.4 matrix.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist
+      - name: Check out phiz v0.3.0
+        uses: actions/checkout@v4
+        with:
+          repository: erikwestlund/phiz
+          ref: 5d2f7a65c243abadbb9ebba22f7987d34253412e
+          path: .context/phiz
+          persist-credentials: false
+      - run: composer install --no-interaction --prefer-dist --no-dev
+        working-directory: .context/phiz
+      - name: Install vl-convert
+        run: |
+          mkdir -p .context/vl-convert
+          curl --fail --location --proto =https --output .context/vl-convert/vl.zip https://github.com/vega/vl-convert/releases/download/v1.9.0/vl-convert_linux-64.zip
+          unzip -q .context/vl-convert/vl.zip -d .context/vl-convert
+      - name: Test toPhiz() with phiz
+        env:
+          PHIZ_AUTOLOAD: ${{ github.workspace }}/.context/phiz/vendor/autoload.php
+          PHIZ_VL_CONVERT: ${{ github.workspace }}/.context/vl-convert/bin/vl-convert
+        run: vendor/bin/phpunit tests/PhizFigureTest.php --filter '(EveryKind|Thinning)' --fail-on-skipped
   integration:
     runs-on: ubuntu-latest
     strategy:
