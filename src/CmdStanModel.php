@@ -145,7 +145,7 @@ final class CmdStanModel
     {
         CmdStan::requireVersion('2.32.0'); $o = self::deprecated(self::options($options), ['jacobian_adjustment']); Options::validate('laplace', $o);
         if (!isset($o['mode'])) {
-            $opt = $o['opt_args'] ?? [];
+            $o['data'] = StanData::normalize($o['data'] ?? null); $opt = $o['opt_args'] ?? [];
             $opt['data'] = $o['data'] ?? null; $opt['jacobian'] = $o['jacobian'] ?? true;
             foreach (['seed', 'init', 'show_messages', 'show_exceptions', 'sig_figs', 'timeout'] as $name) { if (isset($o[$name])) { $opt[$name] = $o[$name]; } }
             $o['mode'] = $this->optimize($opt);

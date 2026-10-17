@@ -186,7 +186,7 @@ class CmdStanFit
     {
         $chains = $this->draws($variables, 'draws_list', $inc_warmup); $columns = array_fill_keys(array_keys($chains[0] ?? []), []); $meta = ['.chain' => [], '.iteration' => [], '.draw' => []]; $draw = 0;
         foreach ($chains as $c => $chain) {
-            foreach ($columns as $name => $_) { $columns[$name] = array_merge($columns[$name], $chain[$name]); }
+            foreach ($columns as $name => $_) { array_push($columns[$name], ...$chain[$name]); }
             $n = count(reset($chain) ?: []);
             for ($i = 0; $i < $n; ++$i) { $meta['.chain'][] = $c + 1; $meta['.iteration'][] = $i + 1; $meta['.draw'][] = ++$draw; }
         }

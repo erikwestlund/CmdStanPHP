@@ -69,7 +69,7 @@ final class StanData
      */
     public static function fromColumns(array|object $columns, string $y, array|string $x = [], array|string $groups = [], bool $intercept = false): self
     {
-        $table = is_object($columns) ? self::tableColumns($columns) : array_map(fn($values) => ['values' => self::listOf($values), 'levels' => null], $columns);
+        $table = is_object($columns) ? self::tableColumns($columns, [$y, ...(array)$x, ...(array)$groups]) : array_map(fn($values) => ['values' => self::listOf($values), 'levels' => null], $columns);
         $get = fn(string $name) => $table[$name] ?? throw new \InvalidArgumentException('Unknown column: '.$name);
         $yValues = $get($y); $n = count($yValues['values']);
         if ($yValues['levels'] !== null) { throw new \InvalidArgumentException("Outcome '".$y."' must be numeric."); }
@@ -97,23 +97,20 @@ final class StanData
      * stats_model_matrix(): 'drop' removes incomplete rows with one E_WARNING, and 'raise' rejects them.
      * $drop_intercept removes the '(Intercept)' column of X for programs with a separate intercept parameter.
      *
-     * @param array<string, mixed>|object $data columns, factor descriptors, or a table: its toModelData() is passed
-     *     unchanged; a table with only toColumns() is passed with factor labels. Factor levels from descriptors or the
-     *     table set the order of group indices.
+     * @param array<string, mixed>|object $data columns, factor descriptors, or a table (toModelData(), or toColumns()
+     *     with types() and levels() for factors). Factors reach stats_model_matrix() as 0-based descriptors, so their
+     *     level order sets the reference level, a factor response's coding, and the order of group indices. Missing
+     *     values are left for $missing to handle.
      */
     public static function fromFormula(string $formula, array|object $data, bool $drop_intercept = false, string $missing = 'drop'): self
     {
         if (!function_exists('stats_model_matrix')) { throw new \RuntimeException('StanData::fromFormula() needs stats_model_matrix() from the php_stats extension (https://github.com/erikwestlund/php-stats), which is not loaded or predates the function. Use StanData::fromColumns() without it.'); }
-        $levels = [];
-        if (is_object($data) && !method_exists($data, 'toModelData')) {
-            $columns = self::tableColumns($data); $data = [];
-            foreach ($columns as $name => $column) {
-                if ($column['levels'] === null) { $data[$name] = $column['values']; continue; }
-                $data[$name] = array_map(fn($i) => $column['levels'][$i - 1], $column['values']); $levels[$name] = $column['levels'];
-            }
-        } elseif (is_object($data)) { $data = $data->toModelData(); }
-        foreach ($data as $name => $column) { if (is_array($column) && isset($column['levels'], $column['codes'])) { $levels[(string)$name] = array_values(array_map('strval', $column['levels'])); } }
-        return self::fromModelMatrix(\stats_model_matrix($formula, $data, $missing), $drop_intercept, $levels);
+        $levels = []; $columns = [];
+        foreach (self::modelColumns($data) as $name => $column) {
+            if (is_array($column) && isset($column['levels'], $column['codes'])) { $levels[$name] = $column['levels']; }
+            $columns[$name] = $column;
+        }
+        return self::fromModelMatrix(\stats_model_matrix($formula, $columns, $missing), $drop_intercept, $levels);
     }
     /**
      * Maps a stats_model_matrix() result to Stan data. This is the only code that depends on the result's shape.
@@ -127,8 +124,10 @@ final class StanData
      * - Each random-effect term's per-row group labels become g_id (1-based) and J_g, where g is the group name with
      *   characters other than letters, digits, and underscores replaced by '_' (so g2:g1 becomes g2_g1). Groups are
      *   numbered in $group_levels[g] order when given (fromFormula() passes factor levels), else over sorted labels
-     *   (numbers numerically, otherwise byte order). Terms with columns other than '(Intercept)' add Z_g (N x Q_g rows,
-     *   the term's z) and Q_g; terms sharing a group are concatenated. J is added for a single grouping factor.
+     *   (numbers numerically, otherwise byte order). When g's terms have any column other than '(Intercept)', Z_g
+     *   (N x Q_g rows) concatenates the z of every term on g, including intercept-only ones, so '(1 + x | g)' and
+     *   '(1 | g) + (0 + x | g)' both give Z_g = [1, x]; Q_g is its width. Two groups that map to the same g are
+     *   rejected. J is added for a single grouping factor.
      * - Every other key (retained_rows, dropped_rows, n_input, n_dropped, terms, assign, ...) is kept in $meta, and
      *   $meta['random'][g] holds each group's label, columns, and correlated flag.
      *
@@ -165,20 +164,20 @@ final class StanData
             $labels = array_values($term['groups'] ?? throw new \UnexpectedValueException("Random-effect term '".$group."' has no group labels."));
             if (count($labels) !== $n) { throw new \UnexpectedValueException("Random-effect term '".$group."' has the wrong number of rows."); }
             $termColumns = array_values(array_map('strval', $term['columns'] ?? ['(Intercept)']));
+            if (isset($groups[$g]) && $groups[$g]['group'] !== $group) { throw new \InvalidArgumentException("Groups '".$groups[$g]['group']."' and '".$group."' both become Stan name '".$g."'; rename one of them."); }
             $groups[$g] ??= ['group' => $group, 'labels' => $labels, 'z' => array_fill(0, $n, []), 'columns' => [], 'terms' => []];
             $groups[$g]['terms'][] = ['label' => $term['label'] ?? null, 'columns' => $termColumns, 'correlated' => $term['correlated'] ?? true];
-            if ($termColumns !== ['(Intercept)']) {
-                $z = array_values($term['z'] ?? throw new \UnexpectedValueException("Random-effect term '".$group."' has no z."));
-                foreach ($z as $i => $zrow) { $groups[$g]['z'][$i] = array_merge($groups[$g]['z'][$i], array_map('floatval', array_values($zrow))); }
-                array_push($groups[$g]['columns'], ...$termColumns);
-            }
+            $z = $termColumns === ['(Intercept)'] && !isset($term['z']) ? array_fill(0, $n, [1.0]) : array_values($term['z'] ?? throw new \UnexpectedValueException("Random-effect term '".$group."' has no z."));
+            if (count($z) !== $n) { throw new \UnexpectedValueException("Random-effect term '".$group."' has a z with the wrong number of rows."); }
+            foreach ($z as $i => $zrow) { $groups[$g]['z'][$i] = array_merge($groups[$g]['z'][$i], array_map('floatval', array_values($zrow))); }
+            array_push($groups[$g]['columns'], ...$termColumns);
         }
         foreach ($groups as $g => $group) {
             $order = $group_levels[$group['group']] ?? null;
             if ($order === null) { $factor = self::factor($group['labels'], $group['group']); $index = $factor['index']; $order = $factor['levels']; }
             else { $positions = array_flip($order); $index = array_map(fn($label) => ($positions[(string)$label] ?? throw new \UnexpectedValueException("Group '".$group['group']."' has an unknown level.")) + 1, $group['labels']); }
             $data[$g.'_id'] = $index; $data['J_'.$g] = count($order); $levels[$g.'_id'] = $order;
-            if ($group['columns'] !== []) { $data['Z_'.$g] = $group['z']; $data['Q_'.$g] = count($group['columns']); }
+            if (array_diff($group['columns'], ['(Intercept)']) !== []) { $data['Z_'.$g] = $group['z']; $data['Q_'.$g] = count($group['columns']); }
             $random[$g] = ['group' => $group['group'], 'columns' => $group['columns'], 'terms' => $group['terms']];
         }
         if (count($groups) === 1) { $data['J'] = $data['J_'.array_key_first($groups)]; }
@@ -198,14 +197,57 @@ final class StanData
         if (count($groups) === 1) { $data['J'] = $data['J_'.array_key_first($groups)]; }
         return new self($data, $levels, $columns);
     }
-    /** @return array<string, array{values: list<mixed>, levels: ?list<string>}> factors hold 1-based indices */
-    private static function tableColumns(object $table): array
+    /**
+     * Columns for stats_model_matrix(): factors (descriptors, or toColumns() factors with levels()) become exact
+     * 0-based descriptors with nulls kept, and other columns pass through unchanged.
+     *
+     * @return array<string, mixed>
+     */
+    private static function modelColumns(array|object $data): array
+    {
+        [$raw, $types, $table] = is_object($data) ? self::rawColumns($data) : [$data, [], null];
+        $out = [];
+        foreach ($raw as $name => $values) {
+            $name = (string)$name;
+            if (is_array($values) && array_key_exists('levels', $values) && array_key_exists('codes', $values)) {
+                $labels = array_values(array_map('strval', $values['levels'])); $base = (int)($values['base'] ?? 0);
+                if ($base !== 0 && $base !== 1) { throw new \UnexpectedValueException("Factor '".$name."' has an unsupported code base."); }
+                $codes = array_map(fn($code) => $code === null ? null : (int)$code - $base, array_values($values['codes']));
+                $out[$name] = ['levels' => $labels, 'codes' => $codes, 'ordered' => (bool)($values['ordered'] ?? false)];
+                continue;
+            }
+            if ($table !== null && self::isFactorType($types[$name] ?? null) && method_exists($table, 'levels')) {
+                $labels = array_values(array_map('strval', $table->levels($name))); $positions = array_flip($labels); $codes = [];
+                foreach (self::listOf($values) as $row => $label) { $codes[] = $label === null ? null : ($positions[(string)$label] ?? throw new \UnexpectedValueException("Factor '".$name."' has an unknown level at row ".($row + 1).'.')); }
+                $out[$name] = ['levels' => $labels, 'codes' => $codes, 'ordered' => false];
+                continue;
+            }
+            $out[$name] = $values instanceof \Traversable ? iterator_to_array($values, false) : $values;
+        }
+        return $out;
+    }
+    /** @return array{0: array, 1: array, 2: object} a table's raw columns, its types() (toColumns() only), and the table */
+    private static function rawColumns(object $table): array
     {
         if (!self::isTable($table)) { throw new \InvalidArgumentException('Expected a table with toModelData() or toColumns().'); }
         $model = method_exists($table, 'toModelData');
         $raw = $model ? $table->toModelData() : $table->toColumns();
         if (!is_array($raw)) { throw new \UnexpectedValueException(($model ? 'toModelData()' : 'toColumns()').' must return an array of columns.'); }
-        $types = !$model && method_exists($table, 'types') ? $table->types() : [];
+        return [$raw, !$model && method_exists($table, 'types') ? $table->types() : [], $table];
+    }
+    private static function isFactorType(mixed $type): bool
+    {
+        $type = $type instanceof \UnitEnum ? ($type instanceof \BackedEnum ? $type->value : $type->name) : $type;
+        return is_string($type) && strtolower($type) === 'factor';
+    }
+    /**
+     * @param ?list<string> $only convert just these columns (others, and their missing values, are ignored)
+     * @return array<string, array{values: list<mixed>, levels: ?list<string>}> factors hold 1-based indices
+     */
+    private static function tableColumns(object $table, ?array $only = null): array
+    {
+        [$raw, $types] = self::rawColumns($table);
+        if ($only !== null) { $raw = array_intersect_key($raw, array_flip($only)); }
         $out = [];
         foreach ($raw as $name => $values) {
             $name = (string)$name;
@@ -223,8 +265,7 @@ final class StanData
                 continue;
             }
             $values = self::listOf($values);
-            $type = $types[$name] ?? null; $type = $type instanceof \UnitEnum ? ($type instanceof \BackedEnum ? $type->value : $type->name) : $type;
-            if (is_string($type) && strtolower($type) === 'factor' && method_exists($table, 'levels')) {
+            if (self::isFactorType($types[$name] ?? null) && method_exists($table, 'levels')) {
                 $labels = array_values(array_map('strval', $table->levels($name))); $positions = array_flip($labels); $index = [];
                 foreach ($values as $row => $label) { $index[] = $label === null ? throw new \InvalidArgumentException("Factor '".$name."' is missing at row ".($row + 1).'; Stan data cannot hold missing values.') : ($positions[(string)$label] ?? throw new \UnexpectedValueException("Factor '".$name."' has an unknown level at row ".($row + 1).'.')) + 1; }
                 $out[$name] = ['values' => $index, 'levels' => $labels];
